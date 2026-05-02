@@ -1,0 +1,29 @@
+# Models（绝对不能进Git！）
+models/
+*.onnx
+*.safetensors
+*.tar.gz
+*.zip
+*.pth
+*.pdparams
+
+# Python
+__pycache__/
+*.py[cod]
+.env
+.venv/
+
+# Frontend
+node_modules/
+dist/
+
+# Tauri
+src-tauri/target/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
