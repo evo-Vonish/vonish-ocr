@@ -83,6 +83,10 @@
         </div>
       </div>
     </Transition>
+    <!-- Toast 提示 -->
+    <Transition name="fade">
+      <div v-if="showToast" class="toast">{{ toastMessage }}</div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -94,8 +98,17 @@ const props = defineProps({ visible: Boolean })
 const emit = defineEmits(['update:visible'])
 const configStore = useConfigStore()
 
+const showToast = ref(false)
+const toastMessage = ref('')
+
 function close() {
   emit('update:visible', false)
+}
+
+function showToastMessage(msg, duration = 2000) {
+  toastMessage.value = msg
+  showToast.value = true
+  setTimeout(() => { showToast.value = false }, duration)
 }
 
 const config = reactive({
@@ -130,6 +143,7 @@ function openDir() {
 async function save() {
   try {
     await configStore.updateConfig(config)
+    showToastMessage('配置已保存，下次任务生效')
     close()
   } catch (e) {
     alert('保存失败: ' + e.message)
@@ -244,4 +258,21 @@ async function save() {
 .slide-leave-active { transition: opacity 0.2s ease; }
 .slide-enter-from,
 .slide-leave-to { opacity: 0; }
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a2e;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  z-index: 2000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.fade-enter-active,
+.fade-leave-active { transition: opacity 0.3s ease; }
+.fade-enter-from,
+.fade-leave-to { opacity: 0; }
 </style>

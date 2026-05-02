@@ -69,6 +69,9 @@ class RuleBasedSceneClassifier:
     """
 
     def classify(self, image: np.ndarray, exif: Optional[dict] = None) -> SceneProfile:
+        if image is None or image.size == 0:
+            logger.warning("场景分类收到空图，返回默认打印文档")
+            return self._make_profile(SCENE_PRINTED_DOCUMENT, 0.5)
         h, w = image.shape[:2]
         aspect = w / h if h > 0 else 1.0
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
@@ -93,7 +96,9 @@ class RuleBasedSceneClassifier:
             return self._make_profile(SCENE_LOW_QUALITY_SCAN, 0.85)
 
         # P3: 试卷（水平线密度 + A4/B5 比例）
-        if h_lines > 10 and 0.65 < aspect < 0.85:
+        # 要求横线贯穿图像宽度 80% 以上（区别于打印文档的短文字行）
+        full_width_lines = self._count_horizontal_lines(gray, min_length_ratio=0.8)
+        if full_width_lines > 10 and 0.65 < aspect < 0.85:
             return self._make_profile(SCENE_EXAM_PAPER, 0.88)
 
         # P4: 户外照片（低边缘密度 + 高色彩方差）
@@ -105,8 +110,10 @@ class RuleBasedSceneClassifier:
             return self._make_profile(SCENE_HANDWRITTEN_NOTE, 0.80)
 
         # P6: 表格（高直线密度 + 网格感）
+        # 表格线不需要贯穿全宽，用较低阈值
+        table_h_lines = self._count_horizontal_lines(gray, min_length_ratio=0.2)
         v_lines = self._count_vertical_lines(gray)
-        if h_lines > 6 and v_lines > 4 and self._has_grid_pattern(gray):
+        if table_h_lines > 6 and v_lines > 4 and self._has_grid_pattern(gray):
             return self._make_profile(SCENE_TABLE_FORM, 0.85)
 
         # P7: 打印文档（高边缘密度 + 规整结构）
@@ -137,11 +144,18 @@ class RuleBasedSceneClassifier:
         return (a_var + b_var) / 2.0
 
     @staticmethod
-    def _count_horizontal_lines(gray: np.ndarray) -> int:
-        """HoughLinesP 检测水平线（角度 ±5° 内）。"""
+    def _count_horizontal_lines(gray: np.ndarray, min_length_ratio: float = 0.0) -> int:
+        """HoughLinesP 检测水平线（角度 ±5° 内）。
+
+        Args:
+            min_length_ratio: 线长度占图像宽度的最小比例，用于过滤短横线。
+                              试卷判断用 0.8（贯穿全宽），表格判断用 0.2。
+        """
+        h, w = gray.shape[:2]
         edges = cv2.Canny(gray, 50, 150)
+        min_length = int(w * min_length_ratio) if min_length_ratio > 0 else int(w * 0.2)
         lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=80,
-                                minLineLength=gray.shape[1] * 0.2, maxLineGap=15)
+                                minLineLength=min_length, maxLineGap=15)
         if lines is None:
             return 0
         count = 0

@@ -57,6 +57,24 @@ class LocalQueue:
         if t and t["status"] in ("queued", "processing"):
             t["status"] = "cancelled"
             self._cancel_events[task_id].set()
+            # 清空队列中该任务的未处理图片，释放内存
+            new_queue = asyncio.Queue()
+            while not self.queue.empty():
+                try:
+                    q_task_id, images, opts = self.queue.get_nowait()
+                    if q_task_id == task_id:
+                        # 丢弃该任务的图片数据
+                        continue
+                    new_queue.put_nowait((q_task_id, images, opts))
+                except asyncio.QueueEmpty:
+                    break
+            # 把保留的任务重新放入队列
+            while not new_queue.empty():
+                try:
+                    item = new_queue.get_nowait()
+                    self.queue.put_nowait(item)
+                except asyncio.QueueEmpty:
+                    break
             return True
         return False
 
@@ -75,6 +93,14 @@ class LocalQueue:
                 continue
 
             task["status"] = "processing"
+            # 推送开始事件 (progress=0)
+            cb_start = self._progress_callbacks.get(task_id)
+            if cb_start:
+                try:
+                    await cb_start(task_id, 0, task["total"], None)
+                except Exception:
+                    pass
+
             semaphore = asyncio.Semaphore(self.concurrency)
             results: List[dict] = [None] * len(images)
 
@@ -116,6 +142,13 @@ class LocalQueue:
             task["results"] = results
             if task["status"] != "cancelled":
                 task["status"] = "completed"
+            # 推送完成事件 (progress=100%)
+            cb_end = self._progress_callbacks.get(task_id)
+            if cb_end:
+                try:
+                    await cb_end(task_id, task["total"], task["total"], {"type": "complete"})
+                except Exception:
+                    pass
             self.queue.task_done()
 
     def start(self, recognize_fn, recognize_sync_fn=None):

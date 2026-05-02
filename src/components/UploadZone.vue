@@ -83,8 +83,13 @@ function onFileSelect(e) {
 }
 
 function addFiles(items) {
+  const MAX_SIZE = 10 * 1024 * 1024 // 10MB
   for (const f of items) {
     if (!f.type.startsWith('image/')) continue
+    if (f.size > MAX_SIZE) {
+      alert(`文件 "${f.name}" 过大 (${(f.size / 1024 / 1024).toFixed(1)}MB)，请压缩后重新上传（最大 10MB）`)
+      continue
+    }
     const reader = new FileReader()
     reader.onload = (e) => {
       const fileData = {

@@ -69,31 +69,55 @@ export async function cancelBatch(taskId) {
   return res.json()
 }
 
-// 创建 WebSocket 连接监听批量任务进度
+// 创建 WebSocket 连接监听批量任务进度（带断线重连）
 export async function createBatchWebSocket(taskId, onMessage) {
   const port = await getPythonPort()
   const wsUrl = `ws://127.0.0.1:${port}/ws/batch/${taskId}`
-  const ws = new WebSocket(wsUrl)
+  const RECONNECT_INTERVAL = 3000 // 3秒
+  const MAX_RECONNECT = 5
+  let reconnectCount = 0
+  let ws = null
+  let closed = false
 
-  ws.onopen = () => {
-    console.log('WebSocket connected:', taskId)
-  }
-  ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data)
-      onMessage(msg)
-    } catch (e) {
-      console.error('WebSocket message parse error:', e)
+  function connect() {
+    ws = new WebSocket(wsUrl)
+
+    ws.onopen = () => {
+      console.log('WebSocket connected:', taskId)
+      reconnectCount = 0
+    }
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+        onMessage(msg)
+      } catch (e) {
+        console.error('WebSocket message parse error:', e)
+      }
+    }
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err)
+    }
+    ws.onclose = () => {
+      console.log('WebSocket closed:', taskId)
+      if (!closed && reconnectCount < MAX_RECONNECT) {
+        reconnectCount++
+        console.log(`WebSocket reconnecting... (${reconnectCount}/${MAX_RECONNECT})`)
+        setTimeout(connect, RECONNECT_INTERVAL)
+      }
     }
   }
-  ws.onerror = (err) => {
-    console.error('WebSocket error:', err)
-  }
-  ws.onclose = () => {
-    console.log('WebSocket closed:', taskId)
-  }
 
-  return ws
+  connect()
+
+  return {
+    close: () => {
+      closed = true
+      if (ws) ws.close()
+    },
+    send: (data) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(data)
+    },
+  }
 }
 
 // 获取可用模型列表

@@ -18,6 +18,12 @@
       <div class="error-hint">{{ errorHint(displayError.code) }}</div>
     </div>
 
+    <!-- Loading 状态 -->
+    <div v-else-if="isLoading" class="loading-card">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">正在识别中...</div>
+    </div>
+
     <div v-else class="content">
       <div v-if="activeTab === 'raw'" class="tab-pane">
         <div class="meta">置信度: {{ formatConfidence(displayResult.confidence) }}</div>
@@ -99,6 +105,13 @@ const rawResult = computed(() => {
 
 const hasResult = computed(() => {
   return rawResult.value && rawResult.value.text
+})
+
+const isLoading = computed(() => {
+  const current = taskStore.currentTask
+  if (!current) return false
+  // 当前任务在处理中且还没有结果
+  return current.status === 'processing' && !rawResult.value
 })
 
 const displayError = computed(() => {
@@ -449,5 +462,29 @@ function formatConfidence(val) {
   color: #5a7a99;
   padding: 2px 0;
   font-family: 'SF Mono', Monaco, monospace;
+}
+.loading-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 60px 20px;
+  gap: 16px;
+}
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e5e5e5;
+  border-top-color: #1a1a2e;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.loading-text {
+  font-size: 14px;
+  color: #8e8e93;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

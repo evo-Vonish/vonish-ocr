@@ -28,6 +28,14 @@ class UserConfig(BaseModel):
     power_mode: str = "balanced"
     preload_model: bool = True
 
+    def model_dump(self, **kwargs):
+        """返回配置字典，API Key 自动脱敏。"""
+        data = super().model_dump(**kwargs)
+        if data.get("ai", {}).get("api_key"):
+            key = data["ai"]["api_key"]
+            data["ai"]["api_key"] = key[:4] + "***" if len(key) > 4 else "***"
+        return data
+
 
 class ConfigManager:
     def __init__(self):
@@ -40,6 +48,14 @@ class ConfigManager:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 return UserConfig(**data)
+            except json.JSONDecodeError:
+                # 配置损坏，备份旧文件并返回默认
+                backup = self.config_path.with_suffix(".json.bak")
+                try:
+                    self.config_path.rename(backup)
+                except Exception:
+                    pass
+                return UserConfig()
             except Exception:
                 pass
         return UserConfig()

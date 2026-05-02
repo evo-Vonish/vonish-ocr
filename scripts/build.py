@@ -21,8 +21,24 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
-# npm 路径（Windows cmd 环境下 PATH 可能不包含此目录）
-NPM_CMD = r"F:\Program Files\nodejs\npm.cmd"
+def _find_npm():
+    """动态查找 npm 路径。"""
+    # 先尝试 PATH 中的 npm
+    npm = shutil.which("npm")
+    if npm:
+        return npm
+    # Windows 常见安装路径
+    candidates = [
+        Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "nodejs" / "npm.cmd",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "nodejs" / "npm.cmd",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    raise FileNotFoundError("未找到 npm，请安装 Node.js 并确保 PATH 中包含 npm")
+
+
+NPM_CMD = _find_npm()
 
 
 def run(cmd, cwd=None, check=True):

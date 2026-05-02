@@ -91,6 +91,7 @@ class ONNXOCREngine(BaseOCREngine):
 
         self._ocr = RapidOCR(**kwargs)
         self.loaded = True
+        gc.collect()
         logger.info("ONNX OCR 引擎加载完成: %s", self.model_id)
 
     async def unload(self) -> None:

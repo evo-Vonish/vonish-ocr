@@ -183,8 +183,7 @@ async def lifespan(app: FastAPI):
     # 关闭时卸载所有引擎
     try:
         if hasattr(app.state, "engine_manager"):
-            for model_id in list(app.state.engine_manager.engines.keys()):
-                await app.state.engine_manager.unload(model_id)
+            await app.state.engine_manager.unload_all()
     except Exception:
         pass
 
@@ -198,10 +197,17 @@ async def lifespan(app: FastAPI):
             pass
 
 
+def _get_cors_origins() -> list[str]:
+    """根据运行模式返回允许的 CORS 来源。sidecar 模式只允许本地，开发模式放宽。"""
+    if _is_sidecar:
+        return ["http://localhost:1420", "http://localhost:8000", "tauri://localhost"]
+    return ["*"]
+
+
 app = FastAPI(title="VonishOCR", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_get_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -236,18 +242,16 @@ class _SensitiveDataFilter(logging.Filter):
 
 
 def _setup_logging(log_dir: Path):
-    """日志输出到文件，按天轮转，保留最近 7 天"""
+    """日志输出到文件，10MB 轮转，保留最近 7 个备份"""
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "backend.log"
 
-    handler = logging.handlers.TimedRotatingFileHandler(
+    handler = logging.handlers.RotatingFileHandler(
         log_file,
-        when='midnight',
-        interval=1,
+        maxBytes=10 * 1024 * 1024,  # 10MB
         backupCount=7,
         encoding='utf-8',
     )
-    handler.suffix = '%Y-%m-%d'
     handler.setFormatter(
         logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
     )

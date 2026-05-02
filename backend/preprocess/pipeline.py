@@ -84,6 +84,44 @@ def _deskew_minarearect(image: np.ndarray) -> Tuple[np.ndarray, float]:
     return rotated, -median_angle
 
 
+def _is_already_rectangular(image: np.ndarray) -> bool:
+    """检查图像是否已经是近似矩形（四角角度 80°-100°，对边比例 > 0.8）。
+
+    用于 id_card 场景：已端正拍摄的身份证无需透视矫正。
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+    edges = cv2.Canny(gray, 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return False
+    cnt = max(contours, key=cv2.contourArea)
+    peri = cv2.arcLength(cnt, True)
+    approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+    if len(approx) != 4:
+        return False
+    # 检查四个角是否接近 90°
+    angles = []
+    pts = approx.reshape(4, 2).astype(np.float32)
+    for i in range(4):
+        p0, p1, p2 = pts[i - 2], pts[i - 1], pts[i]
+        v1 = p0 - p1
+        v2 = p2 - p1
+        cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-6)
+        angle = np.degrees(np.arccos(np.clip(cos, -1, 1)))
+        angles.append(angle)
+    if not all(80 < a < 100 for a in angles):
+        return False
+    # 检查对边比例是否接近
+    (tl, tr, br, bl) = _order_points(pts)
+    top_len = np.linalg.norm(tr - tl)
+    bot_len = np.linalg.norm(br - bl)
+    left_len = np.linalg.norm(bl - tl)
+    right_len = np.linalg.norm(br - tr)
+    h_ratio = min(top_len, bot_len) / max(top_len, bot_len)
+    v_ratio = min(left_len, right_len) / max(left_len, right_len)
+    return h_ratio > 0.8 and v_ratio > 0.8
+
+
 def _perspective_rectify(image: np.ndarray) -> Optional[np.ndarray]:
     """四边形检测 + 透视变换。检测失败返回 None。"""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
@@ -174,11 +212,15 @@ def _denoise_bilateral(image: np.ndarray) -> np.ndarray:
 
 
 def _denoise_nlm(image: np.ndarray) -> np.ndarray:
-    """非局部均值去噪（高质量，慢，仅低质量扫描场景使用）。"""
+    """非局部均值去噪（高质量，慢，仅低质量扫描场景使用）。
+
+    参数说明：templateWindowSize=5, searchWindowSize=11（原 7/21），
+    提速约 3 倍，预期 150-250ms → 50-80ms。
+    """
     if len(image.shape) == 3:
-        return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+        return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 5, 11)
     else:
-        return cv2.fastNlMeansDenoising(image, None, 10, 7, 21)
+        return cv2.fastNlMeansDenoising(image, None, 10, 5, 11)
 
 
 def _contrast_clahe(image: np.ndarray, clipLimit: float = 2.0) -> np.ndarray:
@@ -324,6 +366,9 @@ class PreprocessPipeline:
                 if new_result is not None:
                     result = new_result
                     steps_applied.append(desc)
+            except cv2.error as e:
+                logger.warning(f"预处理步骤 {step_name} OpenCV 错误: {e}")
+                steps_applied.append(f"failed:{step_name}(cv2)")
             except Exception as e:
                 logger.warning(f"预处理步骤 {step_name} 失败: {e}")
                 steps_applied.append(f"failed:{step_name}")
@@ -375,6 +420,14 @@ class PreprocessPipeline:
         return image, "deskew:0°"
 
     def _step_perspective(self, image, params, options):
+        # id_card 场景：如果已经是近似矩形，跳过透视矫正
+        if _is_already_rectangular(image):
+            # 轻量 ROI crop：裁剪中央 85% 区域，去除边缘噪声
+            h, w = image.shape[:2]
+            margin_x = int(w * 0.075)
+            margin_y = int(h * 0.075)
+            cropped = image[margin_y:h - margin_y, margin_x:w - margin_x]
+            return cropped, "perspective_rectify:already_rectangular"
         rectified = _perspective_rectify(image)
         if rectified is not None:
             return rectified, "perspective_rectify"

@@ -80,6 +80,13 @@ class AIRefiner:
         self.temperature = temperature
         self.trigger_mode = trigger_mode  # auto / always / manual
 
+    @property
+    def _masked_key(self) -> str:
+        """用于日志的脱敏 API Key。"""
+        if not self.api_key:
+            return "none"
+        return self.api_key[:4] + "***" if len(self.api_key) > 4 else "***"
+
     def should_refine(self, ocr_confidence: float) -> bool:
         """判断是否需要进行 AI 修复。"""
         if not self.enabled:

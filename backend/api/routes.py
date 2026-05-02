@@ -42,6 +42,11 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
         logger.warning(f"Base64 解码失败: {e}")
         raise HTTPException(status_code=400, detail={"code": "INVALID_IMAGE", "message": f"图片 base64 解码失败: {e}"})
 
+    # 图片大小限制：50MB
+    MAX_IMAGE_SIZE = 50 * 1024 * 1024
+    if len(image_bytes) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail={"code": "FILE_TOO_LARGE", "message": f"图片大小超过 50MB 限制 ({len(image_bytes) // (1024*1024)}MB)"})
+
     # ========== 场景分类 + 预处理 ==========
     img_array = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
     if img_array is None:
@@ -192,10 +197,16 @@ async def ocr_batch_json(request: Request, payload: dict = Body(...)):
     images_b64 = payload.get("images", [])
     options = payload.get("options", {}) or {}
     images = []
+    total_size = 0
+    MAX_BATCH_SIZE = 50 * 1024 * 1024
     for b64 in images_b64:
         if "," in b64:
             b64 = b64.split(",", 1)[1]
-        images.append(base64.b64decode(b64))
+        img_bytes = base64.b64decode(b64)
+        total_size += len(img_bytes)
+        if total_size > MAX_BATCH_SIZE:
+            raise HTTPException(status_code=413, detail={"code": "BATCH_TOO_LARGE", "message": f"批量图片总大小超过 50MB 限制"})
+        images.append(img_bytes)
     task_id = request.app.state.queue.submit(images, options)
     request.app.state.queue.register_progress_callback(task_id, _ws_progress_callback)
     return {"task_id": task_id, "status": "queued"}

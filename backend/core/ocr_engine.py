@@ -142,5 +142,15 @@ class OCREngineManager:
             # 没有运行中的事件循环，直接创建新的
             return asyncio.run(coro)
 
+    async def unload_all(self) -> None:
+        """卸载所有引擎并打印显存日志。"""
+        import gc
+        model_ids = list(self.engines.keys())
+        for mid in model_ids:
+            await self.unload(mid)
+        gc.collect()
+        # 打印显存占用（DirectML 无直接显存查询 API，打印加载状态代替）
+        logger.info(f"所有 OCR 引擎已卸载，当前加载: {self.list_loaded()}")
+
     def list_loaded(self) -> list[str]:
         return list(self.engines.keys())
