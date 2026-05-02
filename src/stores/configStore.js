@@ -16,10 +16,13 @@ export const useConfigStore = defineStore('config', () => {
       api_key: '',
       api_base: '',
       model: '',
+      temperature: 0.3,
+      trigger_mode: 'auto',
     },
     output_mode: 'smart',
     include_diff: false,
     power_mode: 'balanced',
+    preload_model: true,
   })
 
   const models = ref({ available: [], local: [] })

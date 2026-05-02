@@ -11,6 +11,18 @@
       <input ref="fileInput" type="file" multiple accept="image/*" @change="onFileSelect" hidden />
     </div>
 
+    <!-- 批量进度条 -->
+    <div v-if="batchProgress.total > 0" class="batch-progress">
+      <div class="progress-bar">
+        <div class="progress-fill" :style="{ width: (batchProgress.completed / batchProgress.total * 100) + '%' }"></div>
+      </div>
+      <div class="progress-info">
+        <span>{{ batchProgress.completed }} / {{ batchProgress.total }} 张</span>
+        <span v-if="batchProgress.speed > 0">{{ batchProgress.speed.toFixed(1) }} 张/秒</span>
+        <button v-if="batchProgress.status === 'processing'" class="cancel-btn" @click="cancelBatch">取消</button>
+      </div>
+    </div>
+
     <div class="file-list" v-if="files.length">
       <div class="toolbar">
         <label class="check-all">
@@ -38,8 +50,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useTaskStore } from '../stores/taskStore'
+import { ocrBatch, createBatchWebSocket, cancelBatch as apiCancelBatch } from '../api/tauri_ipc'
 
 const taskStore = useTaskStore()
 const fileInput = ref(null)
@@ -48,6 +61,17 @@ let idCounter = 0
 
 const selectAll = ref(false)
 const selectedFiles = computed(() => files.value.filter(f => f.selected))
+
+// 批量进度状态
+const batchProgress = reactive({
+  taskId: null,
+  total: 0,
+  completed: 0,
+  status: '',
+  speed: 0,
+  startTime: 0,
+})
+let ws = null
 
 function onDrop(e) {
   addFiles(e.dataTransfer.files)
@@ -108,16 +132,118 @@ async function startOCR() {
       file.status = 'done'
     } catch (e) {
       file.status = 'failed'
+      // 解析后端错误响应
+      let errCode = 'UNKNOWN'
+      let errMsg = '识别失败，请重试'
+      try {
+        const parsed = typeof e === 'string' ? JSON.parse(e) : e
+        if (parsed?.detail?.code) {
+          errCode = parsed.detail.code
+          errMsg = parsed.detail.message
+        } else if (parsed?.message) {
+          errMsg = parsed.message
+        }
+      } catch (_) {
+        if (typeof e === 'string') errMsg = e
+      }
+      taskStore.setError(file.id, { code: errCode, message: errMsg })
     }
-  } else {
-    // 批量处理
+    return
+  }
+
+  // 批量处理
+  taskStore.isProcessing = true
+  selected.forEach(f => f.status = 'processing')
+  batchProgress.total = selected.length
+  batchProgress.completed = 0
+  batchProgress.status = 'processing'
+  batchProgress.startTime = Date.now()
+  batchProgress.speed = 0
+
+  try {
+    const { task_id } = await ocrBatch(selected.map(f => f.base64))
+    batchProgress.taskId = task_id
+
+    // 建立 WebSocket 连接监听进度
+    ws = await createBatchWebSocket(task_id, (msg) => {
+      if (msg.type === 'progress') {
+        batchProgress.completed = msg.completed
+        const elapsedSec = (Date.now() - batchProgress.startTime) / 1000
+        batchProgress.speed = elapsedSec > 0 ? msg.completed / elapsedSec : 0
+
+        // 更新已完成文件的状态
+        for (let i = 0; i < msg.completed && i < selected.length; i++) {
+          if (selected[i].status !== 'done') {
+            selected[i].status = 'done'
+          }
+        }
+      }
+    })
+
+    // 等待 WebSocket 关闭或任务完成
+    await new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        if (batchProgress.completed >= batchProgress.total || batchProgress.status === 'cancelled') {
+          clearInterval(checkInterval)
+          resolve()
+        }
+      }, 500)
+      // 超时保护：60秒
+      setTimeout(() => {
+        clearInterval(checkInterval)
+        resolve()
+      }, 60000)
+    })
+
+    if (batchProgress.status !== 'cancelled') {
+      batchProgress.status = 'completed'
+    }
+  } catch (e) {
+    console.error('批量识别失败:', e)
+    let errCode = 'UNKNOWN'
+    let errMsg = '批量识别失败，请重试'
     try {
-      const batchResult = await taskStore.submitBatch(selected.map(f => f.base64))
-      selected.forEach(f => f.status = 'processing')
-      // TODO: 轮询批量任务状态
-    } catch (e) {
-      selected.forEach(f => f.status = 'failed')
+      const parsed = typeof e === 'string' ? JSON.parse(e) : e
+      if (parsed?.detail?.code) {
+        errCode = parsed.detail.code
+        errMsg = parsed.detail.message
+      } else if (parsed?.message) {
+        errMsg = parsed.message
+      }
+    } catch (_) {
+      if (typeof e === 'string') errMsg = e
     }
+    selected.forEach(f => {
+      f.status = 'failed'
+      taskStore.setError(f.id, { code: errCode, message: errMsg })
+    })
+  } finally {
+    taskStore.isProcessing = false
+    if (ws) {
+      ws.close()
+      ws = null
+    }
+    // 3秒后隐藏进度条
+    setTimeout(() => {
+      if (batchProgress.status !== 'processing') {
+        batchProgress.total = 0
+        batchProgress.completed = 0
+      }
+    }, 3000)
+  }
+}
+
+async function cancelBatch() {
+  if (!batchProgress.taskId) return
+  try {
+    await apiCancelBatch(batchProgress.taskId)
+    batchProgress.status = 'cancelled'
+    if (ws) {
+      ws.close()
+      ws = null
+    }
+  } catch (e) {
+    console.error('取消失败:', e)
   }
 }
 
@@ -213,4 +339,45 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   text-overflow: ellipsis;
 }
 .meta { font-size: 11px; color: #8e8e93; margin-top: 2px; }
+
+.batch-progress {
+  margin: 12px 0;
+  padding: 12px 16px;
+  background: #f9f9fb;
+  border-radius: 10px;
+  border: 1px solid #e5e5e5;
+}
+.progress-bar {
+  height: 8px;
+  background: #e5e5e5;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-fill {
+  height: 100%;
+  background: #1a1a2e;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+}
+.cancel-btn {
+  padding: 4px 10px;
+  border: 1px solid #ff4d4f;
+  background: #fff;
+  color: #ff4d4f;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.cancel-btn:hover {
+  background: #ff4d4f;
+  color: #fff;
+}
 </style>

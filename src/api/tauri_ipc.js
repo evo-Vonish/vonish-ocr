@@ -7,6 +7,15 @@ const isTauri = () => {
   return typeof window !== 'undefined' && window.__TAURI_INTERNALS__ !== undefined
 }
 
+// 获取 Python sidecar 端口（Tauri 模式下需要）
+export async function getPythonPort() {
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    return invoke('get_python_port')
+  }
+  return 8000
+}
+
 // OCR 单图识别
 export async function ocrRecognize(imageBase64, options = {}) {
   if (isTauri()) {
@@ -33,7 +42,7 @@ export async function ocrBatch(images, options = {}) {
       options: JSON.stringify(options),
     })
   }
-  const res = await fetch('http://localhost:8000/v1/ocr/batch', {
+  const res = await fetch('http://localhost:8000/v1/ocr/batch/json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ images, options }),
@@ -49,6 +58,42 @@ export async function getBatchStatus(taskId) {
   }
   const res = await fetch(`http://localhost:8000/v1/ocr/batch/${taskId}`)
   return res.json()
+}
+
+// 取消批量任务
+export async function cancelBatch(taskId) {
+  const port = await getPythonPort()
+  const res = await fetch(`http://127.0.0.1:${port}/v1/ocr/batch/${taskId}/cancel`, {
+    method: 'POST',
+  })
+  return res.json()
+}
+
+// 创建 WebSocket 连接监听批量任务进度
+export async function createBatchWebSocket(taskId, onMessage) {
+  const port = await getPythonPort()
+  const wsUrl = `ws://127.0.0.1:${port}/ws/batch/${taskId}`
+  const ws = new WebSocket(wsUrl)
+
+  ws.onopen = () => {
+    console.log('WebSocket connected:', taskId)
+  }
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data)
+      onMessage(msg)
+    } catch (e) {
+      console.error('WebSocket message parse error:', e)
+    }
+  }
+  ws.onerror = (err) => {
+    console.error('WebSocket error:', err)
+  }
+  ws.onclose = () => {
+    console.log('WebSocket closed:', taskId)
+  }
+
+  return ws
 }
 
 // 获取可用模型列表

@@ -22,12 +22,20 @@ _is_sidecar = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期"""
-    app.state.config = ConfigManager()
+    app.state.config_manager = ConfigManager()
     try:
         from task_queue.local_queue import LocalQueue
         from models.model_manager import ModelManager
 
-        app.state.queue = LocalQueue()
+        # 根据功耗模式决定 worker 数量
+        cfg = app.state.config_manager.load()
+        power_mode = getattr(cfg, "power_mode", "balanced")
+        worker_map = {"beast": 8, "balanced": 4, "eco": 1}
+        concurrency_map = {"beast": 12, "balanced": 8, "eco": 2}
+        max_workers = worker_map.get(power_mode, 4)
+        concurrency = concurrency_map.get(power_mode, 8)
+
+        app.state.queue = LocalQueue(max_workers=max_workers, concurrency=concurrency)
         app.state.model_manager = ModelManager()
     except Exception as e:
         logging.warning(f"初始化 queue/model_manager 失败: {e}")
@@ -44,9 +52,127 @@ async def lifespan(app: FastAPI):
                 onnx_model_id,
                 lambda path, mid=onnx_model_id: ONNXOCREngine(path, model_id=mid),
             )
+        # 预加载默认模型（根据配置）
+        try:
+            cfg = app.state.config_manager.load()
+            should_preload = cfg.preload_model
+            preload_model_id = os.environ.get("VONISH_PRELOAD_MODEL", "rapidocr-mobile-cn")
+
+            if should_preload and app.state.model_manager.is_installed(preload_model_id):
+                await app.state.engine_manager.load(preload_model_id)
+                logging.info("模型已预加载: %s", preload_model_id)
+            elif not should_preload:
+                logging.info("启动预加载已禁用（preload_model=false）")
+            else:
+                logging.warning("预加载模型未安装: %s", preload_model_id)
+        except Exception as e:
+            logging.warning(f"预加载模型失败: {e}")
+
         logging.info("OCR 引擎管理器初始化完成")
     except Exception as e:
         logging.warning(f"初始化 engine_manager 失败: {e}")
+
+    # 启动批量队列 worker（每张图独立做场景分类和预处理）
+    try:
+        import cv2
+        import numpy as np
+        from scene.classifier import RuleBasedSceneClassifier
+        from preprocess.pipeline import PreprocessPipeline
+
+        async def recognize_wrapper(img_bytes, opts):
+            model_id = opts.get("model", "rapidocr-mobile-cn")
+
+            # 解码图像
+            img_array = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+            if img_array is None:
+                raise RuntimeError("批量任务：无法解码图片")
+
+            # 场景分类 + 预处理（与单图路由一致）
+            cfg = app.state.config_manager.load()
+            scene_type = "printed_document"
+            preprocess_meta = {"scene": scene_type, "steps": [], "time_ms": 0, "used_original": False}
+
+            if getattr(cfg, "scene_detect", True):
+                classifier = RuleBasedSceneClassifier()
+                profile = classifier.classify(img_array)
+                scene_type = profile.scene
+                preprocess_meta["scene"] = scene_type
+
+            if getattr(cfg, "preprocess", True):
+                pipeline = PreprocessPipeline()
+                pp_result = pipeline.run(img_array, scene_type, options={})
+                processed_image = pp_result["image"]
+                preprocess_meta["steps"] = pp_result["steps_applied"]
+                preprocess_meta["time_ms"] = pp_result["timing_ms"]["total"]
+                preprocess_meta["used_original"] = pp_result["used_original"]
+            else:
+                processed_image = img_array
+
+            # 编码回 bytes
+            _, encoded = cv2.imencode('.png', processed_image)
+            processed_bytes = encoded.tobytes()
+
+            # 加载模型并识别
+            if model_id not in app.state.engine_manager.engines:
+                await app.state.engine_manager.load(model_id)
+            result = await app.state.engine_manager.recognize(processed_bytes, model_id=model_id, options=opts)
+
+            # 合并预处理元数据
+            result["scene"] = preprocess_meta["scene"]
+            result["preprocess_steps"] = preprocess_meta["steps"]
+            result["preprocess_time_ms"] = preprocess_meta["time_ms"]
+            if preprocess_meta["used_original"]:
+                result["preprocess_used_original"] = True
+            return result
+
+        def recognize_sync_wrapper(img_bytes, opts):
+            model_id = opts.get("model", "rapidocr-mobile-cn")
+
+            # 解码图像
+            img_array = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+            if img_array is None:
+                raise RuntimeError("批量任务：无法解码图片")
+
+            # 场景分类 + 预处理（同步版本）
+            cfg = app.state.config_manager.load()
+            scene_type = "printed_document"
+            preprocess_meta = {"scene": scene_type, "steps": [], "time_ms": 0, "used_original": False}
+
+            if getattr(cfg, "scene_detect", True):
+                classifier = RuleBasedSceneClassifier()
+                profile = classifier.classify(img_array)
+                scene_type = profile.scene
+                preprocess_meta["scene"] = scene_type
+
+            if getattr(cfg, "preprocess", True):
+                pipeline = PreprocessPipeline()
+                pp_result = pipeline.run(img_array, scene_type, options={})
+                processed_image = pp_result["image"]
+                preprocess_meta["steps"] = pp_result["steps_applied"]
+                preprocess_meta["time_ms"] = pp_result["timing_ms"]["total"]
+                preprocess_meta["used_original"] = pp_result["used_original"]
+            else:
+                processed_image = img_array
+
+            # 编码回 bytes
+            _, encoded = cv2.imencode('.png', processed_image)
+            processed_bytes = encoded.tobytes()
+
+            # 识别
+            result = app.state.engine_manager.recognize_sync(processed_bytes, model_id=model_id, options=opts)
+
+            # 合并预处理元数据
+            result["scene"] = preprocess_meta["scene"]
+            result["preprocess_steps"] = preprocess_meta["steps"]
+            result["preprocess_time_ms"] = preprocess_meta["time_ms"]
+            if preprocess_meta["used_original"]:
+                result["preprocess_used_original"] = True
+            return result
+
+        app.state.queue.start(recognize_wrapper, recognize_sync_wrapper)
+        logging.info(f"批量队列已启动: workers={app.state.queue.max_workers}, concurrency={app.state.queue.concurrency}")
+    except Exception as e:
+        logging.warning(f"启动 queue worker 失败: {e}")
 
     if _is_sidecar:
         # sidecar 模式下 lifespan 启动即表示服务已就绪
@@ -93,15 +219,48 @@ async def health():
     return {"status": "ok", "version": "0.1.0"}
 
 
+class _SensitiveDataFilter(logging.Filter):
+    """脱敏 Filter：隐藏 API Key 等敏感信息"""
+    _SENSITIVE_KEYS = ('api_key', 'apikey', 'api-key', 'authorization', 'token', 'secret')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        lower = msg.lower()
+        for key in self._SENSITIVE_KEYS:
+            if key in lower:
+                # 简单替换：把包含敏感 key 的那一段替换为 ***
+                record.msg = '[REDACTED] 日志包含敏感信息，已脱敏'
+                record.args = ()
+                break
+        return True
+
+
 def _setup_logging(log_dir: Path):
-    """日志输出到文件，避免写入控制台"""
+    """日志输出到文件，按天轮转，保留最近 7 天"""
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "backend.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.FileHandler(log_file, encoding="utf-8")],
+
+    handler = logging.handlers.TimedRotatingFileHandler(
+        log_file,
+        when='midnight',
+        interval=1,
+        backupCount=7,
+        encoding='utf-8',
     )
+    handler.suffix = '%Y-%m-%d'
+    handler.setFormatter(
+        logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+    )
+    handler.addFilter(_SensitiveDataFilter())
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers = []
+    root.addHandler(handler)
+
+    # 为各模块设置合理的级别
+    logging.getLogger('uvicorn').setLevel(logging.WARNING)
+    logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
 
 
 def _signal_handler(signum, frame):

@@ -12,6 +12,7 @@ class AIConfig(BaseModel):
     api_base: Optional[str] = None
     model: str = "deepseek-chat"
     temperature: float = 0.3
+    trigger_mode: str = "auto"  # auto / always / manual
 
 
 class UserConfig(BaseModel):
@@ -25,6 +26,7 @@ class UserConfig(BaseModel):
     include_diff: bool = False
     redact_sensitive: bool = False
     power_mode: str = "balanced"
+    preload_model: bool = True
 
 
 class ConfigManager:

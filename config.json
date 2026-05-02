@@ -1,0 +1,21 @@
+{
+  "ocr_model": "auto",
+  "preprocess": true,
+  "auto_rotate": true,
+  "perspective_correct": false,
+  "scene_detect": true,
+  "ai": {
+    "enabled": false,
+    "provider": "deepseek",
+    "api_key": null,
+    "api_base": null,
+    "model": "deepseek-chat",
+    "temperature": 0.3,
+    "trigger_mode": "auto"
+  },
+  "output_mode": "smart",
+  "include_diff": false,
+  "redact_sensitive": false,
+  "power_mode": "balanced",
+  "preload_model": true
+}

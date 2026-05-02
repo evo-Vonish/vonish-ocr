@@ -35,6 +35,12 @@ const showConfig = ref(false)
 onMounted(() => {
   configStore.loadConfig()
   configStore.loadModels()
+  // 隐藏启动页加载动画
+  const splash = document.getElementById('splash')
+  if (splash) {
+    splash.classList.add('hidden')
+    setTimeout(() => { splash.style.display = 'none' }, 400)
+  }
 })
 </script>
 

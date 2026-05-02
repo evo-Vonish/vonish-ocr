@@ -8,6 +8,7 @@ export const useTaskStore = defineStore('task', () => {
   const currentTask = ref(null)
   const isProcessing = ref(false)
   const results = ref({})
+  const errors = ref({})
 
   // Getters
   const pendingCount = computed(() => tasks.value.filter(t => t.status === 'pending').length)
@@ -85,10 +86,22 @@ export const useTaskStore = defineStore('task', () => {
 
   function setResult(taskId, result) {
     results.value[taskId] = result
+    // 成功时清除错误
+    delete errors.value[taskId]
   }
 
   function getResult(taskId) {
     return results.value[taskId] || null
+  }
+
+  function setError(taskId, error) {
+    errors.value[taskId] = error
+    // 错误时清除结果
+    delete results.value[taskId]
+  }
+
+  function getError(taskId) {
+    return errors.value[taskId] || null
   }
 
   return {
@@ -96,6 +109,7 @@ export const useTaskStore = defineStore('task', () => {
     currentTask,
     isProcessing,
     results,
+    errors,
     pendingCount,
     processingCount,
     doneCount,
@@ -109,5 +123,7 @@ export const useTaskStore = defineStore('task', () => {
     pollBatchStatus,
     setResult,
     getResult,
+    setError,
+    getError,
   }
 })

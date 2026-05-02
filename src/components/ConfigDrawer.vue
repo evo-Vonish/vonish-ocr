@@ -38,7 +38,12 @@
               </select>
               <input v-model="config.ai.api_key" type="password" placeholder="API Key" />
               <input v-model="config.ai.api_base" type="text" placeholder="Base URL (可选)" />
-              <input v-model="config.ai.model" type="text" placeholder="模型名 (可选)" />
+              <input v-model="config.ai.model" type="text" placeholder="模型名 (默认 deepseek-chat)" />
+              <select v-model="config.ai.trigger_mode">
+                <option value="auto">🎯 低置信度自动触发（&lt;85%）</option>
+                <option value="always">🔄 每张图都修复</option>
+                <option value="manual">👤 仅手动触发</option>
+              </select>
             </section>
 
             <section>
@@ -53,12 +58,19 @@
             </section>
 
             <section>
-              <h4>功耗模式</h4>
+              <h4>启动设置</h4>
+              <label><input type="checkbox" v-model="config.preload_model" /> 启动时预加载默认模型</label>
+              <p class="hint-text">开启后应用启动会自动加载模型，首次识别无需等待</p>
+            </section>
+
+            <section>
+              <h4>性能模式</h4>
               <select v-model="config.power_mode">
-                <option value="performance">性能优先</option>
-                <option value="balanced">均衡</option>
-                <option value="save">省电</option>
+                <option value="beast">🐺 野兽模式（全速）</option>
+                <option value="balanced">⚖️ 均衡模式（推荐）</option>
+                <option value="eco">🔋 省电模式（低功耗）</option>
               </select>
+              <p class="hint-text">野兽模式会占用更多 CPU/GPU 资源，离电使用时建议切换为省电模式</p>
             </section>
           </div>
 
@@ -220,6 +232,13 @@ async function save() {
 }
 .save-btn:hover { opacity: 0.9; }
 .save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.hint-text {
+  font-size: 11px;
+  color: #8e8e93;
+  margin-top: 6px;
+  line-height: 1.4;
+}
 
 .slide-enter-active,
 .slide-leave-active { transition: opacity 0.2s ease; }

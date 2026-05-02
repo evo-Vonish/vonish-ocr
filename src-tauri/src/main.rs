@@ -5,6 +5,8 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use tokio::sync::RwLock;
 use tauri::{Manager, State, WindowEvent};
+use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::tray::TrayIconBuilder;
 use tauri_plugin_opener::OpenerExt;
 
 #[cfg(windows)]
@@ -58,13 +60,19 @@ async fn ocr_batch(
     });
     let res = state
         .client
-        .post(format!("http://127.0.0.1:{}/v1/ocr/batch", port))
+        .post(format!("http://127.0.0.1:{}/v1/ocr/batch/json", port))
         .json(&body)
         .send()
         .await
         .map_err(|e| e.to_string())?;
     let text = res.text().await.map_err(|e| e.to_string())?;
     Ok(text)
+}
+
+#[tauri::command]
+async fn get_python_port(state: State<'_, AppState>) -> Result<u16, String> {
+    let port = *state.python_port.read().await;
+    Ok(port)
 }
 
 #[tauri::command]
@@ -258,7 +266,7 @@ fn kill_python_process(pid: u32) {
 // ------------------------------------------------------------------
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
@@ -269,6 +277,7 @@ fn main() {
         .setup(|app| {
             let state: State<'_, AppState> = app.state();
 
+            // 启动 Python sidecar
             tauri::async_runtime::block_on(async move {
                 match start_python_sidecar().await {
                     Ok((port, pid)) => {
@@ -278,10 +287,54 @@ fn main() {
                     }
                     Err(e) => {
                         eprintln!("Failed to start Python sidecar: {}", e);
-                        // 不阻塞启动，允许前端在 sidecar 不可用时提示用户
                     }
                 }
             });
+
+            // 创建系统托盘图标和菜单
+            let show_i = MenuItemBuilder::new("显示主窗口")
+                .id("show")
+                .build(app)?;
+            let quit_i = MenuItemBuilder::new("退出")
+                .id("quit")
+                .build(app)?;
+            let menu = MenuBuilder::new(app)
+                .items(&[&show_i, &quit_i])
+                .build()?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    match event.id().as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            let state: State<'_, AppState> = app.state();
+                            tauri::async_runtime::block_on(async {
+                                if let Some(pid) = *state.python_pid.read().await {
+                                    kill_python_process(pid);
+                                }
+                            });
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
 
             Ok(())
         })
@@ -294,17 +347,34 @@ fn main() {
             get_config,
             save_config,
             open_model_dir,
+            get_python_port,
         ])
-        .on_window_event(|_window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
-                let state: State<'_, AppState> = _window.state();
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // 点击关闭按钮时隐藏窗口，而非退出
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        });
+
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_app_handle, event| {
+        // 其他 RunEvent 处理（如系统托盘点击等已由 TrayIconBuilder 处理）
+        // ExitRequested 在托盘"退出"时允许正常退出，不做阻止
+        match event {
+            tauri::RunEvent::Exit => {
+                // 最终退出时确保 Python 进程已被清理
+                let state: State<'_, AppState> = _app_handle.state();
                 tauri::async_runtime::block_on(async {
                     if let Some(pid) = *state.python_pid.read().await {
                         kill_python_process(pid);
                     }
                 });
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+            _ => {}
+        }
+    });
 }

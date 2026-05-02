@@ -82,7 +82,10 @@ class ONNXOCREngine(BaseOCREngine):
         if self._cls_path:
             kwargs["cls_model_path"] = str(self._cls_path)
 
-        # 限制线程数以避免占用过多 CPU
+        # 启用 DirectML GPU 加速（Windows 专用，绕过 Blackwell CUDA 限制）
+        kwargs["use_dml"] = True
+
+        # 限制线程数以避免占用过多 CPU（GPU 模式下 CPU 只做预处理）
         kwargs["intra_op_num_threads"] = 2
         kwargs["inter_op_num_threads"] = 2
 
@@ -164,19 +167,25 @@ class ONNXOCREngine(BaseOCREngine):
 
     @staticmethod
     def _merge_blocks_to_text(blocks: list[dict]) -> str:
-        """将文字块按行合并为完整文本。"""
+        """将文字块按行合并为完整文本。
+
+        按 box 中心 y 坐标分行，同一行内按 x 坐标排序。
+        相邻 box 间距大于平均字符宽度的 0.4 倍时插入空格。
+        """
         if not blocks:
             return ""
 
+        # ---- 第一步：按行分组 ----
         lines = []
         current_line = [blocks[0]]
         current_y = sum(p[1] for p in blocks[0]["box"]) / 4  # box 中心 y
 
         for block in blocks[1:]:
             y = sum(p[1] for p in block["box"]) / 4
-            # 如果 y 坐标差距小于行高的一半，视为同一行
+            # 用当前行第一个 box 的高度作为行高基准
+            first_box = current_line[0]
             line_height = max(
-                abs(blocks[0]["box"][3][1] - blocks[0]["box"][0][1]), 10
+                abs(first_box["box"][3][1] - first_box["box"][0][1]), 10
             )
             if abs(y - current_y) < line_height * 0.8:
                 current_line.append(block)
@@ -188,10 +197,40 @@ class ONNXOCREngine(BaseOCREngine):
         if current_line:
             lines.append(current_line)
 
-        # 每行内按 x 坐标排序，然后拼接
+        # ---- 第二步：每行内合并，动态判断是否加空格 ----
         text_lines = []
         for line in lines:
             line.sort(key=lambda b: b["box"][0][0])
-            text_lines.append("".join(b["text"] for b in line))
+
+            # 计算该行平均字符宽度
+            total_chars = sum(len(b["text"]) for b in line)
+            total_width = sum(
+                abs(b["box"][2][0] - b["box"][0][0]) for b in line
+            )
+            avg_char_width = (total_width / total_chars) if total_chars > 0 else 10
+            # 空格阈值：间距大于平均字符宽度的 0.4 倍
+            space_threshold = avg_char_width * 0.4
+
+            parts = []
+            for i, b in enumerate(line):
+                parts.append(b["text"])
+                if i < len(line) - 1:
+                    right_x = b["box"][2][0]  # 当前块右上角 x
+                    next_left_x = line[i + 1]["box"][0][0]  # 下一块左上角 x
+                    gap = next_left_x - right_x
+                    next_box = line[i + 1]
+                    next_width = abs(next_box["box"][2][0] - next_box["box"][0][0])
+                    curr_width = abs(b["box"][2][0] - b["box"][0][0])
+                    min_width = min(curr_width, next_width)
+
+                    if gap > space_threshold:
+                        # box 之间有明确间隔 → 加空格
+                        parts.append(" ")
+                    elif gap <= 0 and min_width > 0:
+                        # box 有重叠：轻微重叠（<30%）说明是分开的单词
+                        overlap_ratio = abs(gap) / min_width
+                        if overlap_ratio < 0.3:
+                            parts.append(" ")
+            text_lines.append("".join(parts))
 
         return "\n".join(text_lines)

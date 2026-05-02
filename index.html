@@ -7,7 +7,54 @@
     <title>VonishOCR</title>
   </head>
   <body>
+    <!-- 启动页加载动画，Vue 挂载后自动隐藏 -->
+    <div id="splash">
+      <div class="splash-dot"></div>
+      <div class="splash-text">VonishOCR</div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
+    <style>
+      #splash {
+        position: fixed;
+        inset: 0;
+        background: #0a0a0f;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 99999;
+        transition: opacity 0.4s ease;
+      }
+      #splash.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .splash-dot {
+        width: 16px;
+        height: 16px;
+        background: #00ff88;
+        border-radius: 50%;
+        animation: splash-pulse 1.2s ease-in-out infinite;
+        box-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
+      }
+      .splash-text {
+        margin-top: 24px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: 2px;
+        animation: splash-fade 1.5s ease-in-out infinite alternate;
+      }
+      @keyframes splash-pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.5); opacity: 0.6; }
+      }
+      @keyframes splash-fade {
+        0% { opacity: 0.5; }
+        100% { opacity: 1; }
+      }
+    </style>
   </body>
 </html>
