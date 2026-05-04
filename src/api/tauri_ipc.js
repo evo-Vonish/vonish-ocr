@@ -1,4 +1,64 @@
 /**
+ * 解析 Rust IPC 返回的 JSON 字符串（Tauri invoke 返回 String 而非 Object）
+ */
+import { showToast } from '../composables/useToast'
+
+function _parseJson(text) {
+  if (typeof text === 'string') {
+    try {
+      const data = JSON.parse(text)
+      if (data?.detail?.code) {
+        throw data
+      }
+      return data
+    } catch (e) {
+      if (e?.detail?.code) throw e
+      showToast({ type: 'error', message: '后端响应格式错误，请重启应用后重试', duration: 5000 })
+      throw new Error('后端响应格式错误: ' + text)
+    }
+  }
+  if (text?.detail?.code) throw text
+  return text
+}
+
+export function parseApiError(error, fallbackMessage = '请求失败，请重试') {
+  let parsed = error
+  if (typeof error === 'string') {
+    try {
+      parsed = JSON.parse(error)
+    } catch (_) {
+      return { code: 'UNKNOWN', message: error || fallbackMessage }
+    }
+  }
+
+  if (parsed?.detail?.code) {
+    return {
+      code: parsed.detail.code,
+      message: parsed.detail.message || fallbackMessage,
+    }
+  }
+  if (parsed?.code) {
+    return {
+      code: parsed.code,
+      message: parsed.message || fallbackMessage,
+    }
+  }
+  if (parsed?.message) {
+    return { code: 'UNKNOWN', message: parsed.message }
+  }
+  return { code: 'UNKNOWN', message: fallbackMessage }
+}
+
+async function _jsonOrThrow(res) {
+  const text = await res.text()
+  const data = text ? _parseJson(text) : {}
+  if (!res.ok) {
+    throw data
+  }
+  return data
+}
+
+/**
  * Tauri IPC 封装层
  * 统一封装所有后端调用，在 Tauri 环境下走 invoke，浏览器开发模式 fallback 到 HTTP
  */
@@ -20,44 +80,58 @@ export async function getPythonPort() {
 export async function ocrRecognize(imageBase64, options = {}) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('ocr_recognize', {
+    const text = await invoke('ocr_recognize', {
       imageBase64,
       options: JSON.stringify(options),
     })
+    return _parseJson(text)
   }
   const res = await fetch('http://localhost:8000/v1/ocr', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ image: imageBase64, options }),
   })
-  return res.json()
+  return _jsonOrThrow(res)
 }
 
 // 批量 OCR 提交
 export async function ocrBatch(images, options = {}) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('ocr_batch', {
+    const text = await invoke('ocr_batch', {
       images,
       options: JSON.stringify(options),
     })
+    return _parseJson(text)
   }
   const res = await fetch('http://localhost:8000/v1/ocr/batch/json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ images, options }),
   })
-  return res.json()
+  return _jsonOrThrow(res)
+}
+
+// 获取批量任务结果
+export async function getBatchResults(taskId) {
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const text = await invoke('get_batch_results', { taskId })
+    return _parseJson(text)
+  }
+  const res = await fetch(`http://localhost:8000/v1/ocr/batch/${taskId}/results`)
+  return _jsonOrThrow(res)
 }
 
 // 获取批量任务状态
 export async function getBatchStatus(taskId) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('get_batch_status', { taskId })
+    const text = await invoke('get_batch_status', { taskId })
+    return _parseJson(text)
   }
   const res = await fetch(`http://localhost:8000/v1/ocr/batch/${taskId}`)
-  return res.json()
+  return _jsonOrThrow(res)
 }
 
 // 取消批量任务
@@ -66,7 +140,7 @@ export async function cancelBatch(taskId) {
   const res = await fetch(`http://127.0.0.1:${port}/v1/ocr/batch/${taskId}/cancel`, {
     method: 'POST',
   })
-  return res.json()
+  return _jsonOrThrow(res)
 }
 
 // 创建 WebSocket 连接监听批量任务进度（带断线重连）
@@ -83,7 +157,6 @@ export async function createBatchWebSocket(taskId, onMessage) {
     ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
-      console.log('WebSocket connected:', taskId)
       reconnectCount = 0
     }
     ws.onmessage = (event) => {
@@ -98,10 +171,8 @@ export async function createBatchWebSocket(taskId, onMessage) {
       console.error('WebSocket error:', err)
     }
     ws.onclose = () => {
-      console.log('WebSocket closed:', taskId)
       if (!closed && reconnectCount < MAX_RECONNECT) {
         reconnectCount++
-        console.log(`WebSocket reconnecting... (${reconnectCount}/${MAX_RECONNECT})`)
         setTimeout(connect, RECONNECT_INTERVAL)
       }
     }
@@ -124,46 +195,117 @@ export async function createBatchWebSocket(taskId, onMessage) {
 export async function getAvailableModels() {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('get_available_models')
+    const text = await invoke('get_available_models')
+    return _parseJson(text)
   }
   const res = await fetch('http://localhost:8000/v1/models')
-  return res.json()
+  return _jsonOrThrow(res)
 }
 
 // 拉取模型
 export async function pullModel(modelId) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('pull_model', { modelId })
+    const text = await invoke('pull_model', { modelId })
+    return _parseJson(text)
   }
   const res = await fetch(`http://localhost:8000/v1/models/${modelId}/pull`, {
     method: 'POST',
   })
-  return res.json()
+  return _jsonOrThrow(res)
 }
 
 // 获取配置
 export async function getConfig() {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('get_config')
+    const text = await invoke('get_config')
+    return _parseJson(text)
   }
   const res = await fetch('http://localhost:8000/v1/config')
-  return res.json()
+  return _jsonOrThrow(res)
 }
 
 // 保存配置
 export async function saveConfig(config) {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('save_config', { config: JSON.stringify(config) })
+    const text = await invoke('save_config', { config: JSON.stringify(config) })
+    return _parseJson(text)
   }
   const res = await fetch('http://localhost:8000/v1/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
   })
-  return res.json()
+  return _jsonOrThrow(res)
+}
+
+// AI 方案列表。Key 由后端加密存储，这里只拿 key_saved 状态。
+export async function getAISchemes() {
+  const port = await getPythonPort()
+  const res = await fetch(`http://127.0.0.1:${port}/v1/ai/schemes`)
+  return _jsonOrThrow(res)
+}
+
+// 新增或更新 AI 方案；api_key 只在本次请求内传输，不写入 localStorage。
+export async function saveAIScheme(scheme) {
+  const port = await getPythonPort()
+  const res = await fetch(`http://127.0.0.1:${port}/v1/ai/schemes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scheme),
+  })
+  return _jsonOrThrow(res)
+}
+
+export async function setActiveAIScheme(schemeId) {
+  const port = await getPythonPort()
+  const res = await fetch(`http://127.0.0.1:${port}/v1/ai/schemes/active`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scheme_id: schemeId }),
+  })
+  return _jsonOrThrow(res)
+}
+
+export async function streamAIRefine(payload, { signal, onEvent } = {}) {
+  const port = await getPythonPort()
+  const url = `http://127.0.0.1:${port}/v1/ai/refine/stream`
+  console.log('[streamAIRefine] POST', url, payload)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  })
+  console.log('[streamAIRefine] response status:', res.status, res.statusText)
+  if (!res.ok) {
+    const err = await _jsonOrThrow(res)
+    console.log('[streamAIRefine] error response:', err)
+    throw err
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let eventCount = 0
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() || ''
+    for (const chunk of chunks) {
+      const line = chunk.split('\n').find(part => part.startsWith('data: '))
+      if (!line) continue
+      const event = JSON.parse(line.slice(6))
+      eventCount++
+      console.log('[streamAIRefine] event #' + eventCount, event.type)
+      onEvent?.(event)
+    }
+  }
+  console.log('[streamAIRefine] stream end, total events:', eventCount)
 }
 
 // 打开模型目录
@@ -173,4 +315,22 @@ export async function openModelDir() {
     return invoke('open_model_dir')
   }
   console.warn('openModelDir: 仅在 Tauri 桌面环境中可用')
+}
+
+// 打开后端日志目录
+export async function openBackendConsole() {
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    return invoke('open_backend_console')
+  }
+  window.open('/logs/', '_blank')
+}
+
+// 打开项目文档
+export async function openDocs() {
+  if (isTauri()) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    return invoke('open_docs')
+  }
+  window.open('/README.md', '_blank')
 }

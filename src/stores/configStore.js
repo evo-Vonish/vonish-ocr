@@ -1,6 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getConfig, saveConfig, getAvailableModels, pullModel, openModelDir } from '../api/tauri_ipc'
+import {
+  getConfig,
+  saveConfig,
+  getAvailableModels,
+  pullModel,
+  openModelDir,
+  parseApiError,
+  getAISchemes,
+  saveAIScheme,
+  setActiveAIScheme,
+} from '../api/tauri_ipc'
 
 export const useConfigStore = defineStore('config', () => {
   // State
@@ -23,9 +33,12 @@ export const useConfigStore = defineStore('config', () => {
     include_diff: false,
     power_mode: 'balanced',
     preload_model: true,
+    notify_enabled: true,
   })
 
   const models = ref({ available: [], local: [] })
+  const aiSchemes = ref([])
+  const activeAiSchemeId = ref(null)
   const isLoading = ref(false)
   const pullProgress = ref(null)
 
@@ -59,6 +72,28 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
+  async function loadAISchemes() {
+    try {
+      const data = await getAISchemes()
+      aiSchemes.value = data.schemes || []
+      activeAiSchemeId.value = data.active_scheme_id || null
+    } catch (e) {
+      console.error('加载 AI 方案失败:', e)
+    }
+  }
+
+  async function upsertAIScheme(scheme) {
+    const data = await saveAIScheme(scheme)
+    await loadAISchemes()
+    return data.scheme
+  }
+
+  async function activateAIScheme(schemeId) {
+    await setActiveAIScheme(schemeId)
+    activeAiSchemeId.value = schemeId
+    aiSchemes.value = aiSchemes.value.map(s => ({ ...s }))
+  }
+
   async function downloadModel(modelId) {
     isLoading.value = true
     pullProgress.value = { modelId, progress: 0, status: 'downloading' }
@@ -68,7 +103,8 @@ export const useConfigStore = defineStore('config', () => {
       await loadModels() // 刷新本地模型列表
       return result
     } catch (e) {
-      pullProgress.value = { modelId, progress: 0, status: 'failed', error: e.message }
+      const parsed = parseApiError(e, '模型下载失败')
+      pullProgress.value = { modelId, progress: 0, status: 'failed', error: parsed.message }
       throw e
     } finally {
       isLoading.value = false
@@ -86,11 +122,16 @@ export const useConfigStore = defineStore('config', () => {
   return {
     config,
     models,
+    aiSchemes,
+    activeAiSchemeId,
     isLoading,
     pullProgress,
     loadConfig,
     updateConfig,
     loadModels,
+    loadAISchemes,
+    upsertAIScheme,
+    activateAIScheme,
     downloadModel,
     openModelsFolder,
   }

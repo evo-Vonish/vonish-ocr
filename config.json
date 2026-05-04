@@ -1,18 +1,41 @@
 {
-  "ocr_model": "auto",
+  "ocr_model": "cnocr-standard-cn",
   "preprocess": true,
   "auto_rotate": true,
   "perspective_correct": false,
   "scene_detect": true,
   "ai": {
-    "enabled": false,
+    "enabled": true,
     "provider": "deepseek",
     "api_key": null,
     "api_base": null,
     "model": "deepseek-chat",
     "temperature": 0.3,
-    "trigger_mode": "auto"
+    "trigger_mode": "always"
   },
+  "ai_schemes": [
+    {
+      "id": "default-deepseek",
+      "name": "DeepSeek 默认",
+      "provider_type": "deepseek",
+      "api_base": null,
+      "model": "deepseek-chat",
+      "weight": 5,
+      "enabled": true,
+      "key_saved": false
+    },
+    {
+      "id": "80bd2ee8-6c9b-47f9-8d08-670706b8ee45",
+      "name": "",
+      "provider_type": "deepseek",
+      "api_base": "",
+      "model": "deepseek-chat",
+      "weight": 5,
+      "enabled": true,
+      "key_saved": true
+    }
+  ],
+  "active_ai_scheme_id": "80bd2ee8-6c9b-47f9-8d08-670706b8ee45",
   "output_mode": "smart",
   "include_diff": false,
   "redact_sensitive": false,

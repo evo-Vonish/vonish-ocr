@@ -4,6 +4,7 @@ import json
 import signal
 import argparse
 import logging
+import logging.handlers
 import traceback
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -31,9 +32,9 @@ async def lifespan(app: FastAPI):
         cfg = app.state.config_manager.load()
         power_mode = getattr(cfg, "power_mode", "balanced")
         worker_map = {"beast": 8, "balanced": 4, "eco": 1}
-        concurrency_map = {"beast": 12, "balanced": 8, "eco": 2}
+        concurrency_map = {"beast": 12, "balanced": 3, "eco": 2}
         max_workers = worker_map.get(power_mode, 4)
-        concurrency = concurrency_map.get(power_mode, 8)
+        concurrency = concurrency_map.get(power_mode, 3)
 
         app.state.queue = LocalQueue(max_workers=max_workers, concurrency=concurrency)
         app.state.model_manager = ModelManager()
@@ -126,6 +127,7 @@ async def lifespan(app: FastAPI):
             return result
 
         def recognize_sync_wrapper(img_bytes, opts):
+            import gc
             model_id = opts.get("model", "rapidocr-mobile-cn")
 
             # 解码图像
@@ -137,6 +139,9 @@ async def lifespan(app: FastAPI):
             cfg = app.state.config_manager.load()
             scene_type = "printed_document"
             preprocess_meta = {"scene": scene_type, "steps": [], "time_ms": 0, "used_original": False}
+
+            classifier = None
+            pipeline = None
 
             if getattr(cfg, "scene_detect", True):
                 classifier = RuleBasedSceneClassifier()
@@ -158,7 +163,7 @@ async def lifespan(app: FastAPI):
             _, encoded = cv2.imencode('.png', processed_image)
             processed_bytes = encoded.tobytes()
 
-            # 识别
+            # 识别（纯同步，避免 asyncio.run 在线程中反复创建事件循环）
             result = app.state.engine_manager.recognize_sync(processed_bytes, model_id=model_id, options=opts)
 
             # 合并预处理元数据
@@ -167,6 +172,14 @@ async def lifespan(app: FastAPI):
             result["preprocess_time_ms"] = preprocess_meta["time_ms"]
             if preprocess_meta["used_original"]:
                 result["preprocess_used_original"] = True
+
+            # 显式释放大对象，防止内存堆积
+            del img_array, processed_image, encoded, processed_bytes
+            if classifier:
+                del classifier
+            if pipeline:
+                del pipeline
+            gc.collect()
             return result
 
         app.state.queue.start(recognize_wrapper, recognize_sync_wrapper)

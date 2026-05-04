@@ -1,88 +1,169 @@
 <template>
-  <div class="result-panel">
-    <div class="tabs">
-      <button
-        v-for="t in tabs"
-        :key="t.key"
-        :class="{ active: activeTab === t.key }"
-        @click="activeTab = t.key"
-      >
-        {{ t.label }}
-      </button>
+  <section class="result-panel">
+    <div class="result-head">
+      <div>
+        <div class="result-kicker">OCR RESULT</div>
+        <h2 class="result-title v-title">{{ currentName }}</h2>
+      </div>
+      <div class="state-tabs">
+        <button
+          v-for="t in tabs"
+          :key="t.key"
+          type="button"
+          class="state-tab"
+          :class="{ active: activeTab === t.key }"
+          @click="activeTab = t.key"
+        >
+          {{ t.label }}
+        </button>
+      </div>
     </div>
 
-    <!-- 错误卡片 -->
     <div v-if="displayError" class="error-card">
-      <div class="error-title">❌ 识别失败</div>
+      <div class="error-label">OCR ERROR</div>
+      <div class="error-title">识别失败</div>
       <div class="error-message">{{ displayError.message }}</div>
       <div class="error-hint">{{ errorHint(displayError.code) }}</div>
+      <div class="error-actions">
+        <button class="text-btn" type="button" @click="showErrorDetail = !showErrorDetail">
+          {{ showErrorDetail ? '收起' : '详情' }}
+        </button>
+        <button class="text-btn" type="button" @click="copyError">复制</button>
+        <button class="text-btn" type="button" @click="reportError">汇报</button>
+      </div>
+      <pre v-if="showErrorDetail" class="error-json">{{ errorDetailJson }}</pre>
     </div>
 
-    <!-- Loading 状态 -->
     <div v-else-if="isLoading" class="loading-card">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">正在识别中...</div>
+      <div class="paper-stage">
+        <span class="doc-line wide"></span>
+        <span class="doc-line"></span>
+        <span class="doc-line short"></span>
+        <span class="v-scan-line"></span>
+      </div>
+      <div class="loading-text v-mono-accent">LOCAL OCR RUNNING</div>
     </div>
 
-    <div v-else class="content">
-      <div v-if="activeTab === 'raw'" class="tab-pane">
-        <div class="meta">置信度: {{ formatConfidence(displayResult.confidence) }}</div>
-        <!-- 预处理信息 -->
-        <div v-if="preprocessInfo && preprocessInfo.scene" class="preprocess-bar" @click="showPreprocessDetail = !showPreprocessDetail">
-          <span class="preprocess-summary">{{ formatPreprocessSummary(preprocessInfo) }}</span>
-          <span class="preprocess-toggle">{{ showPreprocessDetail ? '▲' : '▼' }}</span>
-        </div>
-        <div v-if="showPreprocessDetail && preprocessInfo && preprocessInfo.steps.length" class="preprocess-detail">
-          <div v-for="(step, i) in preprocessInfo.steps" :key="i" class="preprocess-step">
-            {{ i + 1 }}. {{ step }}
+    <div v-else-if="!rawResult" class="empty-state">
+      <div class="empty-title v-display">等待识别结果</div>
+      <div class="empty-text">左侧选择证据文件后开始本地 OCR，结果会进入此工作台。</div>
+    </div>
+
+    <div v-else class="result-body">
+      <div v-if="activeTab === 'raw'" class="result-grid">
+        <article class="result-col paper-col">
+          <div class="result-label">RAW OCR</div>
+          <pre class="ocr-text">{{ displayResult.text || '暂无识别结果' }}</pre>
+        </article>
+        <article class="result-col">
+          <div class="result-label">PREPROCESS</div>
+          <button v-if="preprocessInfo?.scene" type="button" class="preprocess-bar" @click="showPreprocessDetail = !showPreprocessDetail">
+            <span>{{ formatPreprocessSummary(preprocessInfo) }}</span>
+            <span>{{ showPreprocessDetail ? 'LESS' : 'MORE' }}</span>
+          </button>
+          <div v-if="showPreprocessDetail && preprocessInfo?.steps?.length" class="preprocess-detail">
+            <div v-for="(step, i) in preprocessInfo.steps" :key="i" class="preprocess-step">
+              {{ String(i + 1).padStart(2, '0') }} · {{ step }}
+            </div>
+          </div>
+          <div class="confidence-row">
+            <span>CONFIDENCE</span>
+            <span :class="{ 'v-low-confidence': displayResult.confidence > 0 && displayResult.confidence < 0.85 }">
+              {{ formatConfidence(displayResult.confidence) }}
+            </span>
+          </div>
+        </article>
+        <article class="result-col">
+          <div class="result-label">AUDIT NOTES</div>
+          <div v-if="displayResult.uncertain.length" class="uncertain-box">
+            存在 {{ displayResult.uncertain.length }} 处不确定内容，建议人工复核。
+          </div>
+          <div v-else class="quiet-note">未收到不确定标记。</div>
+          <div v-if="displayResult.failoverNotice" class="failover-note">{{ displayResult.failoverNotice }}</div>
+        </article>
+      </div>
+
+      <div v-if="activeTab === 'polished'" class="single-result">
+        <div class="stream-head">
+          <div class="result-label">AI POLISHED · {{ formatConfidence(displayResult.aiConfidence) }}</div>
+          <div class="stream-actions">
+            <span v-if="streamStatus === 'streaming'" class="stream-pulse">AI 正在复核...</span>
+            <button v-if="streamStatus === 'streaming'" class="text-btn" type="button" @click="stopRefine">停止</button>
+            <button v-else class="text-btn" type="button" :disabled="!displayResult.text" @click="startRefine">重新精修</button>
           </div>
         </div>
-        <pre class="text-block">{{ displayResult.text || '暂无识别结果' }}</pre>
+        <pre class="ocr-text">{{ streamedText || displayResult.polished || '暂无精修结果' }}</pre>
+        <div v-if="streamStatus === 'error'" class="quiet-note is-error">AI 修复失败：{{ aiStream.error.value?.message || '未知错误' }}</div>
+        <div v-if="displayResult.aiError" class="quiet-note is-error">自动修复出错：{{ displayResult.aiError.message }}</div>
+        <div v-if="streamStatus === 'interrupted'" class="quiet-note">精修已中断，已保留当前输出。</div>
       </div>
 
-      <div v-if="activeTab === 'polished'" class="tab-pane">
-        <div class="meta">AI 置信度: {{ displayResult.aiConfidence }}</div>
-        <pre class="text-block">{{ displayResult.polished || '暂无精修结果' }}</pre>
-      </div>
-
-      <div v-if="activeTab === 'diff'" class="tab-pane">
-        <div v-if="!displayResult.diff.length" class="empty">无修改记录</div>
-        <div v-for="(d, i) in displayResult.diff" :key="i" class="diff-card">
-          <div class="original">原文: {{ d.original }}</div>
-          <div class="arrow">↓</div>
-          <div class="fixed">修改: {{ d.fixed }}</div>
-          <div class="reason">理由: {{ d.reason }}</div>
+      <div v-if="activeTab === 'diff'" class="single-result">
+        <div class="result-label">DIFF RECORD</div>
+        <div v-if="!displayResult.diff.length" class="quiet-note">无修改记录。</div>
+        <div v-else class="diff-list">
+          <div v-for="(d, i) in displayResult.diff" :key="i" class="diff-line">
+            <span class="diff-from v-delete-mark">{{ d.original || '-' }}</span>
+            <span class="diff-arrow">-&gt;</span>
+            <span class="diff-to v-insert-mark">{{ d.fixed || '-' }}</span>
+            <span v-if="d.reason" class="diff-reason">{{ d.reason }}</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <div v-if="displayResult.uncertain && displayResult.uncertain.length" class="uncertain-banner">
-      ⚠️ 存在 {{ displayResult.uncertain.length }} 处不确定内容，建议人工复核
+    <div class="export-panel" :class="{ disabled: !hasResult }" :title="hasResult ? '' : '请先完成识别'">
+      <div class="export-tabs">
+        <button
+          v-for="tab in exportTabs"
+          :key="tab.key"
+          type="button"
+          class="export-tab"
+          :class="{ active: exportMode === tab.key }"
+          :disabled="!hasResult"
+          @click="exportMode = tab.key"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <div class="export-actions">
+        <button v-if="exportMode === 'copy'" class="export-btn" type="button" :disabled="!hasResult" @click="copyCurrent">复制</button>
+        <template v-else>
+          <button class="export-btn" type="button" :disabled="!hasResult" @click="downloadCurrent('txt')">TXT</button>
+          <button class="export-btn" type="button" :disabled="!hasResult" @click="downloadCurrent('md')">MD</button>
+          <button class="export-btn" type="button" :disabled="!hasResult" @click="downloadCurrent('docx')">DOCX</button>
+        </template>
+      </div>
     </div>
-
-    <!-- 导出按钮组 -->
-    <div v-if="hasResult" class="export-bar">
-      <button class="export-btn" @click="copyToClipboard" title="复制到剪贴板">📋 复制</button>
-      <button class="export-btn" @click="exportTXT" title="导出为 TXT">📝 TXT</button>
-      <button class="export-btn" @click="exportJSON" title="导出为 JSON">📊 JSON</button>
-      <button class="export-btn" @click="exportMarkdown" title="导出为 Markdown">🖊️ MD</button>
-    </div>
-  </div>
+  </section>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useTaskStore } from '../stores/taskStore'
+import { useAIStream } from '../composables/useAIStream'
+import { copyResult, exportSingle } from '../utils/exporters'
+import { showToast } from '../composables/useToast'
 
 const taskStore = useTaskStore()
+const aiStream = useAIStream()
 
 const tabs = [
-  { key: 'raw', label: '原始 OCR' },
-  { key: 'polished', label: 'AI 精修' },
-  { key: 'diff', label: '修改记录' },
+  { key: 'raw', label: '原始' },
+  { key: 'polished', label: '精修' },
+  { key: 'diff', label: 'Diff' },
 ]
+const exportTabs = [
+  { key: 'raw', label: '原文本' },
+  { key: 'polished', label: '修复后' },
+  { key: 'compare', label: '双结果对比' },
+  { key: 'copy', label: '复制' },
+]
+
 const activeTab = ref('raw')
+const exportMode = ref('polished')
 const showPreprocessDetail = ref(false)
+const showErrorDetail = ref(false)
 
 const SCENE_NAMES = {
   printed_document: '打印文档',
@@ -95,32 +176,18 @@ const SCENE_NAMES = {
   exam_paper: '试卷',
 }
 
-const rawResult = computed(() => {
-  const current = taskStore.currentTask
-  if (current) {
-    return taskStore.getResult(current.id)
-  }
-  return null
-})
-
-const hasResult = computed(() => {
-  return rawResult.value && rawResult.value.text
-})
+const currentName = computed(() => taskStore.currentTask?.name || '未选择文件')
+const rawResult = computed(() => taskStore.currentTask ? taskStore.getResult(taskStore.currentTask.id) : null)
+const hasResult = computed(() => !!rawResult.value?.text)
+const streamStatus = computed(() => aiStream.status.value)
+const streamedText = computed(() => aiStream.text.value)
 
 const isLoading = computed(() => {
   const current = taskStore.currentTask
-  if (!current) return false
-  // 当前任务在处理中且还没有结果
-  return current.status === 'processing' && !rawResult.value
+  return !!current && current.status === 'processing' && !rawResult.value
 })
 
-const displayError = computed(() => {
-  const current = taskStore.currentTask
-  if (current) {
-    return taskStore.getError(current.id)
-  }
-  return null
-})
+const displayError = computed(() => taskStore.currentTask ? taskStore.getError(taskStore.currentTask.id) : null)
 
 const preprocessInfo = computed(() => {
   const result = rawResult.value
@@ -135,356 +202,375 @@ const preprocessInfo = computed(() => {
 
 const displayResult = computed(() => {
   const result = rawResult.value
-  if (result) {
-    const ai = result.ai || {}
-    return {
-      text: result.text || '',
-      confidence: result.confidence || 0,
-      polished: ai.polished || result.text || '',
-      aiConfidence: ai.confidence || result.confidence || 0,
-      diff: ai.diff || [],
-      uncertain: ai.uncertain || [],
-    }
-  }
+  const ai = result?.ai || {}
   return {
-    text: '请上传图片并运行识别...\n(选择左侧文件后点击"开始识别")',
-    confidence: 0,
-    polished: '',
-    aiConfidence: 0,
-    diff: [],
-    uncertain: [],
+    text: result?.text || '',
+    confidence: result?.confidence || 0,
+    polished: ai.polished || result?.text || '',
+    aiConfidence: ai.confidence || result?.confidence || 0,
+    diff: ai.diff || [],
+    uncertain: ai.uncertain || [],
+    failoverNotice: ai.failover_notice || '',
+    aiError: ai.error || null,
   }
 })
 
 function formatPreprocessSummary(info) {
-  if (!info || !info.scene) return ''
+  if (!info?.scene) return ''
   const sceneName = SCENE_NAMES[info.scene] || info.scene
-  const parts = []
-  if (info.scene === 'screenshot') {
-    return `📱 ${sceneName} · 已跳过预处理`
-  }
-  if (info.usedOriginal) {
-    parts.push(`⚠️ ${sceneName} · 预处理效果不佳，已使用原图`)
-  } else {
-    parts.push(`📄 ${sceneName}`)
-    if (info.timeMs > 0) {
-      parts.push(`预处理 ${info.timeMs}ms`)
-    }
-    // 提取角度信息
-    const angleStep = info.steps.find(s => s.startsWith('deskew:') || s.startsWith('auto_rotate:'))
-    if (angleStep) {
-      const match = angleStep.match(/:(.+)/)
-      if (match && match[1] !== '0°') {
-        parts.push(`已自动校正倾斜 ${match[1]}`)
-      }
-    }
-  }
-  return parts.join(' · ')
+  if (info.scene === 'screenshot') return `${sceneName} · 已跳过预处理`
+  if (info.usedOriginal) return `${sceneName} · 已回退原图`
+  return `${sceneName} · ${info.timeMs || 0}ms`
 }
 
 function errorHint(code) {
   const hints = {
-    MODEL_NOT_LOADED: '请先下载并加载 OCR 模型（点击配置 → 模型设置）',
-    MODEL_LOAD_ERROR: '模型文件可能损坏，请重新下载',
-    OCR_ENGINE_ERROR: '图片格式可能不支持，请尝试 JPG 或 PNG',
-    AI_REFINER_FAILED: 'AI 修复超时或 API Key 无效，已返回原始 OCR 结果',
-    INVALID_IMAGE: '图片解码失败，请检查图片是否损坏',
-    MISSING_IMAGE: '请求缺少图片数据，请重新上传',
+    MODEL_NOT_LOADED: '请先下载并加载 OCR 模型。',
+    MODEL_LOAD_ERROR: '模型文件可能损坏，请重新下载。',
+    OCR_ENGINE_ERROR: '图片格式可能不支持，请尝试 JPG 或 PNG。',
+    AI_REFINER_FAILED: 'AI 修复超时或 API Key 无效，已返回原始 OCR 结果。',
+    AI_ALL_PROVIDERS_FAILED: '所有 AI 方案均不可用，请检查方案中心里的 Key、模型名和 Base URL。',
+    INVALID_IMAGE: '图片解码失败，请检查图片是否损坏。',
+    MISSING_IMAGE: '请求缺少图片数据，请重新上传。',
+    BATCH_TOO_LARGE: '批量图片总大小超过限制，请分批上传。',
   }
-  return hints[code] || '请重试或查看日志文件了解详情'
+  return hints[code] || '请重试或查看日志文件了解详情。'
 }
 
-function _downloadBlob(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
+const errorDetailJson = computed(() => {
+  const err = displayError.value
+  if (!err) return ''
+  return JSON.stringify({
+    code: err.code,
+    message: err.message,
+    hint: errorHint(err.code),
+    file: taskStore.currentTask?.name || '未知',
+    time: new Date().toISOString(),
+    version: '0.1.0',
+  }, null, 2)
+})
 
-async function copyToClipboard() {
-  const text = displayResult.value.text
-  if (!text) return
+async function copyError() {
   try {
-    await navigator.clipboard.writeText(text)
-    // 简单反馈：改变按钮文字 1.5 秒
-    const btn = event.target
-    const original = btn.textContent
-    btn.textContent = '✅ 已复制'
-    setTimeout(() => { btn.textContent = original }, 1500)
+    await navigator.clipboard.writeText(errorDetailJson.value)
+    showToast({ type: 'success', message: '错误信息已复制到剪贴板', duration: 2000 })
   } catch (e) {
-    console.error('复制失败:', e)
-    alert('复制失败，请手动复制')
+    showToast({ type: 'error', message: '复制失败，请手动复制', duration: 3000 })
   }
 }
 
-function exportTXT() {
-  const result = rawResult.value
-  if (!result) return
-  const content = result.text || ''
-  const filename = taskStore.currentTask?.name?.replace(/\.[^.]+$/, '') || 'ocr-result'
-  _downloadBlob(content, `${filename}.txt`, 'text/plain;charset=utf-8')
+function reportError() {
+  const body = encodeURIComponent(
+    `**错误报告**\n\n\`\`\`json\n${errorDetailJson.value}\n\`\`\`\n\n请描述你遇到的问题：\n\n复现步骤：\n1. \n2. \n3. \n`
+  )
+  window.open(`https://github.com/evo-Vonish/vonish-ocr/issues/new?body=${body}`, '_blank')
 }
 
-function exportJSON() {
+async function startRefine() {
   const result = rawResult.value
-  if (!result) return
-  const exportData = {
-    text: result.text,
-    blocks: result.blocks || [],
-    confidence: result.confidence,
-    scene: result.scene || 'print',
-    ai: result.ai || null,
-    time_ms: result.time_ms || 0,
-    exported_at: new Date().toISOString(),
+  const taskId = taskStore.currentTask?.id
+  if (!result || !taskId) return
+  activeTab.value = 'polished'
+  await aiStream.start({
+    text: result.text || '',
+    scene_type: result.scene || 'printed_document',
+    confidence: result.confidence || 0,
+  })
+  const finalResult = aiStream.providerResult.value
+  if (finalResult) {
+    taskStore.setResult(taskId, {
+      ...result,
+      ai: {
+        ...(result.ai || {}),
+        ...finalResult,
+      },
+    })
   }
-  const content = JSON.stringify(exportData, null, 2)
-  const filename = taskStore.currentTask?.name?.replace(/\.[^.]+$/, '') || 'ocr-result'
-  _downloadBlob(content, `${filename}.json`, 'application/json')
 }
 
-function exportMarkdown() {
+function stopRefine() {
+  aiStream.stop()
+}
+
+async function copyCurrent() {
   const result = rawResult.value
   if (!result) return
-  const filename = taskStore.currentTask?.name?.replace(/\.[^.]+$/, '') || 'image'
-  const confidence = formatConfidence(result.confidence)
-  const text = result.text || '（无识别结果）'
-  const ai = result.ai || {}
-  let md = `# OCR 识别结果\n\n`
-  md += `**来源**: ${filename}\n\n`
-  md += `**置信度**: ${confidence}\n\n`
-  md += `**识别时间**: ${result.time_ms || 0}ms\n\n`
-  md += `---\n\n`
-  md += `## 识别文本\n\n\`\`\`\n${text}\n\`\`\`\n\n`
-  if (ai.polished && ai.polished !== text) {
-    md += `## AI 精修\n\n\`\`\`\n${ai.polished}\n\`\`\`\n\n`
-    if (ai.diff && ai.diff.length) {
-      md += `### 修改记录\n\n`
-      for (const d of ai.diff) {
-        md += `- **原文**: ${d.original || '-'}\n`
-        md += `  **修改**: ${d.fixed || '-'}\n`
-        if (d.reason) md += `  **理由**: ${d.reason}\n`
-        md += `\n`
-      }
-    }
+  try {
+    await copyResult(result, 'polished')
+    showToast({ type: 'success', message: '结果已复制到剪贴板', duration: 2000 })
+  } catch (e) {
+    showToast({ type: 'error', message: '复制失败，请手动复制', duration: 3000 })
   }
-  _downloadBlob(md, `${filename}.md`, 'text/markdown;charset=utf-8')
+}
+
+async function downloadCurrent(format) {
+  const result = rawResult.value
+  if (!result) return
+  await exportSingle(result, taskStore.currentTask?.name || 'ocr-result', exportMode.value, format)
 }
 
 function formatConfidence(val) {
   if (val === undefined || val === null) return '-'
   const num = typeof val === 'number' ? val : parseFloat(val)
-  if (isNaN(num)) return '-'
-  return (num * 100).toFixed(1) + '%'
+  if (Number.isNaN(num)) return '-'
+  return `${(num * 100).toFixed(1)}%`
 }
 </script>
 
 <style scoped>
 .result-panel {
-  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
+  gap: var(--s4);
 }
-.tabs {
+
+.result-head,
+.stream-head {
   display: flex;
-  border-bottom: 1px solid #e5e5e5;
-  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
 }
-.tabs button {
-  flex: 1;
-  padding: 14px;
-  background: #fff;
-  border: none;
-  border-bottom: 2px solid transparent;
+
+.result-kicker,
+.result-label,
+.error-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--v-text-muted);
+  letter-spacing: 0.08em;
+}
+
+.result-title {
+  margin-top: var(--s1);
+  font-size: var(--fs-h2);
+  word-break: break-word;
+}
+
+.state-tabs,
+.export-tabs,
+.export-actions,
+.stream-actions,
+.error-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.state-tab,
+.export-tab,
+.text-btn,
+.export-btn {
+  min-height: 36px;
+  padding-inline: var(--s3);
+  background: transparent;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  color: var(--v-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
   cursor: pointer;
-  font-size: 13px;
-  color: #8e8e93;
-  transition: all 0.15s;
+  transition: border-color var(--dur-base) var(--ease-cut), color var(--dur-base) var(--ease-cut), box-shadow var(--dur-base) var(--ease-cut);
 }
-.tabs button.active {
-  color: #1a1a2e;
-  border-bottom-color: #1a1a2e;
-  font-weight: 600;
+
+.state-tab.active,
+.export-tab.active {
+  border-color: var(--v-accent);
+  color: var(--v-text);
+  box-shadow: var(--glow-soft);
 }
-.content {
+
+button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.result-body {
+  min-height: 0;
   flex: 1;
-  padding: 20px;
-  overflow-y: auto;
 }
-.tab-pane {
-  height: 100%;
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s4);
 }
-.text-block {
+
+.result-col,
+.single-result,
+.error-card,
+.loading-card {
+  background: var(--v-panel);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  padding: var(--s4);
+}
+
+.paper-col {
+  background: color-mix(in srgb, var(--v-panel) 82%, var(--v-paper) 18%);
+}
+
+.ocr-text,
+.error-json {
+  margin: var(--s3) 0 0;
   white-space: pre-wrap;
   word-break: break-word;
-  background: #f9f9fb;
-  padding: 16px;
-  border-radius: 10px;
-  font-size: 14px;
-  line-height: 1.7;
-  color: #333;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.85;
+  color: var(--v-text);
 }
-.meta {
-  font-size: 12px;
-  color: #8e8e93;
-  margin-bottom: 10px;
-}
-.empty {
-  color: #c7c7cc;
-  text-align: center;
-  padding: 60px 20px;
-  font-size: 14px;
-}
-.diff-card {
-  padding: 14px;
-  border: 1px solid #e5e5e5;
-  border-radius: 10px;
-  margin-bottom: 10px;
-  background: #fafafa;
-}
-.original {
-  color: #8e8e93;
-  text-decoration: line-through;
-  font-size: 13px;
-}
-.arrow {
-  color: #c7c7cc;
-  font-size: 12px;
-  margin: 4px 0;
-}
-.fixed {
-  color: #1a1a2e;
-  font-weight: 600;
-  font-size: 14px;
-}
-.reason {
-  color: #666;
-  font-size: 12px;
-  margin-top: 6px;
-}
-.uncertain-banner {
-  background: #fffbe6;
-  border-top: 1px solid #ffe58f;
-  padding: 12px 20px;
-  font-size: 13px;
-  color: #ad8b00;
-  flex-shrink: 0;
-}
-.export-bar {
-  display: flex;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid #e5e5e5;
-  background: #fafafa;
-  flex-shrink: 0;
-}
-.export-btn {
-  flex: 1;
-  padding: 8px 10px;
-  border: 1px solid #d1d1d6;
-  background: #fff;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  color: #333;
-  transition: all 0.15s;
-}
-.export-btn:hover {
-  border-color: #1a1a2e;
-  background: #f2f2f7;
-}
-.error-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 40px;
-  text-align: center;
-  background: #fff0f0;
-}
-.error-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #d32f2f;
-  margin-bottom: 12px;
-}
-.error-message {
-  font-size: 14px;
-  color: #555;
-  margin-bottom: 8px;
-  max-width: 400px;
-}
-.error-hint {
-  font-size: 12px;
-  color: #888;
-  max-width: 400px;
-  line-height: 1.5;
-}
-.preprocess-bar {
+
+.preprocess-bar,
+.confidence-row {
+  width: 100%;
+  min-height: 36px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  background: #f0f7ff;
-  border: 1px solid #d6e9ff;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  cursor: pointer;
-  font-size: 12px;
-  color: #1a6db5;
-  transition: background 0.15s;
+  gap: var(--s3);
+  margin-top: var(--s3);
+  padding: var(--s2) var(--s3);
+  background: var(--v-bg);
+  color: var(--v-text-muted);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
 }
-.preprocess-bar:hover {
-  background: #e0f0ff;
+
+.preprocess-step,
+.quiet-note,
+.uncertain-box,
+.failover-note,
+.error-hint {
+  margin-top: var(--s3);
+  color: var(--v-text-muted);
+  font-size: var(--fs-small);
+  line-height: 1.6;
 }
-.preprocess-summary {
-  flex: 1;
+
+.failover-note {
+  color: var(--v-accent);
+  font-family: var(--font-mono);
 }
-.preprocess-toggle {
-  font-size: 10px;
-  margin-left: 8px;
-  color: #7fb3e0;
+
+.is-error {
+  color: var(--v-error);
 }
-.preprocess-detail {
-  background: #f9fbfd;
-  border: 1px solid #e8f0f8;
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 10px;
+
+.diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-top: var(--s3);
 }
-.preprocess-step {
-  font-size: 11px;
-  color: #5a7a99;
-  padding: 2px 0;
-  font-family: 'SF Mono', Monaco, monospace;
+
+.diff-line {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: 1.7;
 }
-.loading-card {
-  flex: 1;
+
+.diff-arrow {
+  color: var(--v-accent);
+  margin-inline: var(--s2);
+}
+
+.diff-reason {
+  margin-left: var(--s3);
+  color: var(--v-text-muted);
+}
+
+.error-card {
+  min-height: 320px;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  background: color-mix(in srgb, var(--v-error-dim) 42%, var(--v-panel) 58%);
+  border-color: var(--v-error);
+}
+
+.error-title {
+  margin-top: var(--s2);
+  color: var(--v-error);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-semibold);
+}
+
+.error-message {
+  margin-top: var(--s3);
+  color: var(--v-text);
+}
+
+.loading-card,
+.empty-state {
+  min-height: 420px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.paper-stage {
+  position: relative;
+  width: min(520px, 80%);
+  min-height: 300px;
+  padding: var(--s6);
+  overflow: hidden;
+  background: var(--v-paper);
+  color: var(--v-coal);
+  border-radius: var(--r3);
+}
+
+.doc-line {
+  display: block;
+  height: 6px;
+  margin-bottom: var(--s4);
+  background: color-mix(in srgb, var(--v-coal) 54%, transparent);
+  border-radius: var(--r1);
+}
+
+.doc-line.wide { width: 78%; }
+.doc-line.short { width: 42%; }
+
+.stream-pulse {
+  color: var(--v-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+
+.export-panel {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  padding: 60px 20px;
-  gap: 16px;
+  gap: var(--s3);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--v-border);
 }
-.loading-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid #e5e5e5;
-  border-top-color: #1a1a2e;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+
+.export-panel.disabled {
+  opacity: 0.58;
 }
-.loading-text {
-  font-size: 14px;
-  color: #8e8e93;
+
+.export-btn {
+  background: var(--v-accent);
+  color: var(--v-coal);
+  border-color: var(--v-accent);
+  font-weight: var(--fw-semibold);
 }
-@keyframes spin {
-  to { transform: rotate(360deg); }
+
+@media (max-width: 900px) {
+  .result-head,
+  .stream-head,
+  .export-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

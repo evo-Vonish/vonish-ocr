@@ -1,29 +1,53 @@
-# Models（绝对不能进Git！）
+# ── Test Images (OCR benchmark dataset, do NOT commit) ──
+test_images/
+
+# ── Downloaded Models (large binaries, managed separately) ──
 models/
-*.onnx
-*.safetensors
-*.tar.gz
-*.zip
-*.pth
-*.pdparams
 
-# Python
-__pycache__/
-*.py[cod]
-.env
-.venv/
-
-# Frontend
-node_modules/
-dist/
-
-# Tauri
-src-tauri/target/
-
-# Logs
+# ── Logs ──
 logs/
 *.log
 
-# OS
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+
+# ── Node / Frontend ──
+node_modules/
+dist/
+*.local
+
+# ── Tauri / Rust ──
+src-tauri/target/
+src-tauri/Cargo.lock
+*.rs.bk
+
+# ── OS ──
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Temporary / Cache ──
+.temp/
+.cache/
+*.tmp
+
+# ── Build outputs ──
+*.msi
+*.exe
+backend_dist/

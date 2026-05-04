@@ -21,17 +21,27 @@
 
 ## 快速开始
 
-```bash
-# 安装依赖（PowerShell）
+```powershell
+# 安装依赖
 scripts\setup_dev.ps1
 
-# 开发模式（热重载）
-cargo tauri dev
+# 如果 PowerShell 拦截 npm 脚本，可执行一次：
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+# 推荐开发模式：分开启动 Vite 与 Tauri，避免 cargo tauri dev 超时后杀掉前端
+cd F:\VonishOCR
+node node_modules/vite/bin/vite.js
+
+# 另开一个终端
+cd F:\VonishOCR\src-tauri
+cargo run
 
 # 后端独立测试
-cd backend && python main.py
+cd F:\VonishOCR\backend
+python main.py
 
 # 一键打包
+cd F:\VonishOCR
 python scripts/build.py
 ```
 

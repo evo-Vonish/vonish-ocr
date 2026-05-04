@@ -27,6 +27,10 @@ class BaseOCREngine(ABC):
         """返回识别结果"""
         ...
 
+    def recognize_sync(self, image_bytes: bytes, options: dict) -> dict:
+        """同步识别入口，供线程池批量任务调用。"""
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement recognize_sync")
+
 
 class MemoryBudget:
     """简单的显存/内存预算管理。"""
@@ -119,10 +123,8 @@ class OCREngineManager:
     def recognize_sync(self, image_bytes: bytes, model_id: Optional[str] = None, options: Optional[dict] = None) -> dict:
         """同步版本，供线程池调用。
         
-        注意：ONNXOCREngine.recognize 虽然是 async，但内部没有真正的 await 点，
-        可以直接在同步上下文中调用其协程对象。
+        直接调用引擎的同步识别逻辑，避免 asyncio.run 在线程中反复创建/销毁事件循环。
         """
-        import asyncio
         target = model_id or self.active
         if target is None:
             raise RuntimeError("No active OCR engine")
@@ -130,17 +132,7 @@ class OCREngineManager:
         if engine is None:
             raise RuntimeError(f"Engine {target} not loaded")
         
-        # 直接获取协程对象并运行（引擎内部没有 await，所以可以直接执行）
-        coro = engine.recognize(image_bytes, options or {})
-        try:
-            # 尝试在当前线程的事件循环中运行
-            loop = asyncio.get_running_loop()
-            # 如果在事件循环中，需要用 run_coroutine_threadsafe
-            future = asyncio.run_coroutine_threadsafe(coro, loop)
-            return future.result(timeout=30)
-        except RuntimeError:
-            # 没有运行中的事件循环，直接创建新的
-            return asyncio.run(coro)
+        return engine.recognize_sync(image_bytes, options or {})
 
     async def unload_all(self) -> None:
         """卸载所有引擎并打印显存日志。"""

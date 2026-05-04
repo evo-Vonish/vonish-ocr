@@ -102,6 +102,9 @@ class ONNXOCREngine(BaseOCREngine):
         logger.info("ONNX OCR 引擎已卸载: %s", self.model_id)
 
     async def recognize(self, image_bytes: bytes, options: dict) -> dict:
+        return self.recognize_sync(image_bytes, options)
+
+    def recognize_sync(self, image_bytes: bytes, options: dict) -> dict:
         if not self.loaded or self._ocr is None:
             raise RuntimeError("OCR 引擎未加载")
 

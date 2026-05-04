@@ -76,6 +76,22 @@ async fn get_python_port(state: State<'_, AppState>) -> Result<u16, String> {
 }
 
 #[tauri::command]
+async fn get_batch_results(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<String, String> {
+    let port = *state.python_port.read().await;
+    let res = state
+        .client
+        .get(format!("http://127.0.0.1:{}/v1/ocr/batch/{}/results", port, task_id))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let text = res.text().await.map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+#[tauri::command]
 async fn get_batch_status(
     state: State<'_, AppState>,
     task_id: String,
@@ -164,6 +180,30 @@ async fn open_model_dir(app_handle: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn open_backend_console(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let logs_dir = std::env::current_dir()
+        .unwrap_or_default()
+        .join("logs");
+    app_handle
+        .opener()
+        .open_path(logs_dir.to_string_lossy().as_ref(), None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_docs(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let readme = std::env::current_dir()
+        .unwrap_or_default()
+        .join("README.md");
+    app_handle
+        .opener()
+        .open_path(readme.to_string_lossy().as_ref(), None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ------------------------------------------------------------------
 // Python Sidecar 管理
 // ------------------------------------------------------------------
@@ -184,12 +224,26 @@ async fn start_python_sidecar() -> Result<(u16, u32), String> {
     let is_dev = cfg!(debug_assertions);
 
     let (program, args): (String, Vec<String>) = if is_dev {
-        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-            .map_err(|e| e.to_string())?;
+        let manifest_dir = match std::env::var("CARGO_MANIFEST_DIR") {
+            Ok(value) => value,
+            Err(_) => std::env::current_dir()
+                .map_err(|e| e.to_string())?
+                .join("src-tauri")
+                .to_string_lossy()
+                .to_string(),
+        };
         let project_root = Path::new(&manifest_dir)
             .parent()
             .ok_or("无法定位项目根目录")?;
-        let script = project_root.join("backend").join("main.py");
+        let mut script = project_root.join("backend").join("main.py");
+        if !script.exists() {
+            if let Some(root) = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).and_then(|p| p.parent()).map(|p| p.to_path_buf()))
+            {
+                script = root.join("backend").join("main.py");
+            }
+        }
         (
             "python".to_string(),
             vec![script.to_string_lossy().to_string(), "--sidecar".to_string()],
@@ -269,6 +323,7 @@ fn main() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             python_port: RwLock::new(0),
             python_pid: RwLock::new(None),
@@ -302,8 +357,9 @@ fn main() {
                 .items(&[&show_i, &quit_i])
                 .build()?;
 
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            // 安全设置托盘图标（开发模式下 default_window_icon 可能为 None）
+            let icon = app.default_window_icon().cloned();
+            let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
@@ -333,8 +389,11 @@ fn main() {
                             let _ = window.set_focus();
                         }
                     }
-                })
-                .build(app)?;
+                });
+            if let Some(icon) = icon {
+                tray_builder = tray_builder.icon(icon);
+            }
+            let _tray = tray_builder.build(app)?;
 
             Ok(())
         })
@@ -342,11 +401,14 @@ fn main() {
             ocr_recognize,
             ocr_batch,
             get_batch_status,
+            get_batch_results,
             get_available_models,
             pull_model,
             get_config,
             save_config,
             open_model_dir,
+            open_backend_console,
+            open_docs,
             get_python_port,
         ])
         .on_window_event(|window, event| {

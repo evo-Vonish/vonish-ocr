@@ -7,6 +7,12 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    hmr: {
+      overlay: false,
+    },
+    headers: {
+      'Cache-Control': 'no-store',
+    },
     watch: {
       ignored: ['**/src-tauri/**'],
     },

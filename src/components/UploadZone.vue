@@ -1,68 +1,174 @@
 <template>
-  <div class="upload-zone">
+  <section v-if="variant === 'dropzone'" class="workbench-upload">
     <div
       class="drop-area"
-      @dragover.prevent
+      :class="{ active: isDragging, processing: taskStore.isProcessing }"
+      @dragenter.prevent="isDragging = true"
+      @dragover.prevent="isDragging = true"
+      @dragleave.prevent="isDragging = false"
       @drop.prevent="onDrop"
       @click="fileInput.click()"
     >
-      <p class="hint">📁 拖放图片到此处，或点击选择文件</p>
-      <p class="sub">支持 JPG / PNG / WEBP / BMP，单次最多 200 张</p>
       <input ref="fileInput" type="file" multiple accept="image/*" @change="onFileSelect" hidden />
-    </div>
-
-    <!-- 批量进度条 -->
-    <div v-if="batchProgress.total > 0" class="batch-progress">
-      <div class="progress-bar">
-        <div class="progress-fill" :style="{ width: (batchProgress.completed / batchProgress.total * 100) + '%' }"></div>
-      </div>
-      <div class="progress-info">
-        <span>{{ batchProgress.completed }} / {{ batchProgress.total }} 张</span>
-        <span v-if="batchProgress.speed > 0">{{ batchProgress.speed.toFixed(1) }} 张/秒</span>
-        <button v-if="batchProgress.status === 'processing'" class="cancel-btn" @click="cancelBatch">取消</button>
-      </div>
-    </div>
-
-    <div class="file-list" v-if="files.length">
-      <div class="toolbar">
-        <label class="check-all">
-          <input type="checkbox" v-model="selectAll" @change="toggleSelectAll" />
-          <span>全选</span>
-        </label>
-        <div class="actions">
-          <button @click="clearCompleted">清空已完成</button>
-          <button class="primary" @click="startOCR" :disabled="!selectedFiles.length || taskStore.isProcessing">
-            {{ taskStore.isProcessing ? '识别中...' : `开始识别 (${selectedFiles.length})` }}
-          </button>
+      <div v-if="taskStore.isProcessing" class="preview-stage">
+        <div class="paper-sheet">
+          <span class="doc-line wide"></span>
+          <span class="doc-line"></span>
+          <span class="doc-line short"></span>
+          <span class="doc-crease"></span>
+          <span class="v-scan-line"></span>
+        </div>
+        <div class="pipeline">
+          <div class="pipeline-node is-done"><span></span>LOAD IMAGE</div>
+          <div class="pipeline-node is-current"><span></span>LOCAL OCR</div>
+          <div class="pipeline-node"><span></span>AUDIT RESULT</div>
         </div>
       </div>
-
-      <div v-for="file in files" :key="file.id" class="file-item" :class="file.status" @click="selectFile(file)">
-        <input type="checkbox" v-model="file.selected" @click.stop />
-        <img v-if="file.thumb" :src="file.thumb" class="thumb" />
-        <div class="info">
-          <div class="name">{{ file.name }}</div>
-          <div class="meta">{{ formatSize(file.size) }} · {{ statusText(file.status) }}</div>
-        </div>
+      <div v-else class="empty-copy">
+        <div class="empty-title v-display">放入证据文件</div>
+        <div class="empty-subtitle">JPG / PNG / WEBP / BMP，单次最多 200 张，本地优先识别。</div>
+        <div class="local-idle">LOCAL HELD · DROP OR CLICK</div>
       </div>
     </div>
-  </div>
+  </section>
+
+  <section v-else class="queue-rail">
+    <div class="rail-head">
+      <div>
+        <div class="rail-kicker">EVIDENCE QUEUE</div>
+        <div class="rail-title v-title">证据队列</div>
+      </div>
+      <span class="queue-count">{{ taskStore.tasks.length.toString().padStart(2, '0') }}</span>
+    </div>
+
+    <div v-if="batchProgress.total > 0" class="batch-panel">
+      <div class="batch-row">
+        <span>OCR BATCH</span>
+        <span class="progress-value">{{ batchProgress.completed }} / {{ batchProgress.total }}</span>
+      </div>
+      <div class="v-progress">
+        <div class="v-progress-fill" :style="{ width: (batchProgress.completed / batchProgress.total * 100) + '%' }"></div>
+      </div>
+      <div class="batch-row muted">
+        <span>{{ batchProgress.speed > 0 ? `${batchProgress.speed.toFixed(1)} / SEC` : batchProgress.status.toUpperCase() }}</span>
+        <button v-if="batchProgress.status === 'processing'" class="text-btn danger" type="button" @click="cancelBatch">取消</button>
+      </div>
+    </div>
+
+    <div class="queue-actions">
+      <label class="check-all">
+        <input type="checkbox" v-model="selectAll" @change="toggleSelectAll" />
+        <span>全选可识别项</span>
+      </label>
+      <button class="text-btn" type="button" @click="clearCompleted">清除已完成与失败</button>
+    </div>
+
+    <div class="queue-command-row">
+      <button class="start-btn" type="button" @click="startOCR" :disabled="!selectedFiles.length || taskStore.isProcessing">
+        {{ taskStore.isProcessing ? '本地识别中' : `开始识别 ${selectedFiles.length}` }}
+      </button>
+      <button class="save-all-btn" type="button" :disabled="!completedItems.length || batchSave.isRunning" @click="batchSave.open = !batchSave.open">
+        全部保存
+      </button>
+    </div>
+
+    <div v-if="batchSave.open" class="batch-save-popover">
+      <label>
+        格式
+        <select v-model="batchSave.format">
+          <option value="txt">TXT</option>
+          <option value="md">MD</option>
+          <option value="docx">DOCX</option>
+        </select>
+      </label>
+      <label>
+        内容
+        <select v-model="batchSave.mode">
+          <option value="raw">原文本</option>
+          <option value="polished">修复后</option>
+          <option value="compare">双结果对比</option>
+        </select>
+      </label>
+      <label>
+        输出
+        <select v-model="batchSave.output">
+          <option value="zip">ZIP 多文件</option>
+          <option value="merged">合并单文档</option>
+        </select>
+      </label>
+      <button class="start-btn compact" type="button" :disabled="batchSave.isRunning" @click="saveAllCompleted">
+        {{ batchSave.isRunning ? `正在打包 ${batchSave.done}/${batchSave.total} 张...` : '开始保存' }}
+      </button>
+    </div>
+
+    <div v-if="taskStore.tasks.length" class="upload-list">
+      <button
+        v-for="file in taskStore.tasks"
+        :key="file.id"
+        type="button"
+        class="upload-row"
+        :class="[file.status, { active: taskStore.currentTaskId === file.id }]"
+        @click="selectFile(file)"
+      >
+        <input
+          type="checkbox"
+          :checked="file.selected"
+          :disabled="file.restored || !file.base64"
+          @change.stop="taskStore.setTaskSelection(file.id, $event.target.checked)"
+          @click.stop
+        />
+        <img v-if="file.thumb" :src="file.thumb" class="thumb" alt="" />
+        <span v-else class="thumb placeholder">OCR</span>
+        <span class="file-copy">
+          <span class="file-name">{{ file.name }}</span>
+          <span class="file-meta">{{ formatSize(file.size) }} · {{ statusText(file.status) }}<span v-if="file.restored"> · 历史</span></span>
+        </span>
+      </button>
+    </div>
+    <div v-else class="queue-empty">
+      <span class="empty-line"></span>
+      <span>等待文件进入证据桌</span>
+    </div>
+  </section>
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useTaskStore } from '../stores/taskStore'
-import { ocrBatch, createBatchWebSocket, cancelBatch as apiCancelBatch } from '../api/tauri_ipc'
+import { ocrBatch, createBatchWebSocket, cancelBatch as apiCancelBatch, getBatchResults, parseApiError } from '../api/tauri_ipc'
+import { showToast } from '../composables/useToast'
+import { notifyBatchComplete, notifyBatchFailed } from '../composables/useNotify'
+import { useConfigStore } from '../stores/configStore'
+import { exportBatch } from '../utils/exporters'
+
+defineProps({
+  variant: {
+    type: String,
+    default: 'queue',
+  },
+})
 
 const taskStore = useTaskStore()
+const configStore = useConfigStore()
 const fileInput = ref(null)
-const files = ref([])
-let idCounter = 0
+const isDragging = ref(false)
 
 const selectAll = ref(false)
-const selectedFiles = computed(() => files.value.filter(f => f.selected))
+const selectedFiles = computed(() => taskStore.tasks.filter(f => f.selected && f.base64 && !f.restored))
+const completedItems = computed(() => taskStore.tasks
+  .map(task => ({ task, result: taskStore.getResult(task.id) }))
+  .filter(item => item.result?.text))
 
-// 批量进度状态
+const batchSave = reactive({
+  open: false,
+  format: 'md',
+  mode: 'polished',
+  output: 'zip',
+  isRunning: false,
+  done: 0,
+  total: 0,
+})
+
 const batchProgress = reactive({
   taskId: null,
   total: 0,
@@ -73,7 +179,26 @@ const batchProgress = reactive({
 })
 let ws = null
 
+onMounted(() => {
+  window.addEventListener('keydown', handleBatchSaveShortcut)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleBatchSaveShortcut)
+})
+
+function handleBatchSaveShortcut(event) {
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    if (completedItems.value.length) {
+      batchSave.open = true
+      saveAllCompleted()
+    }
+  }
+}
+
 function onDrop(e) {
+  isDragging.value = false
   addFiles(e.dataTransfer.files)
 }
 
@@ -83,82 +208,95 @@ function onFileSelect(e) {
 }
 
 function addFiles(items) {
-  const MAX_SIZE = 10 * 1024 * 1024 // 10MB
+  const MAX_SIZE = 10 * 1024 * 1024
   for (const f of items) {
     if (!f.type.startsWith('image/')) continue
     if (f.size > MAX_SIZE) {
-      alert(`文件 "${f.name}" 过大 (${(f.size / 1024 / 1024).toFixed(1)}MB)，请压缩后重新上传（最大 10MB）`)
+      showToast({ type: 'warning', message: `文件 "${f.name}" 过大，请压缩后重新上传。最大 10MB。`, duration: 5000 })
       continue
     }
     const reader = new FileReader()
     reader.onload = (e) => {
-      const fileData = {
-        id: ++idCounter,
+      const [task] = taskStore.addFiles([{
         name: f.name,
         size: f.size,
         status: 'pending',
         selected: true,
         thumb: e.target.result,
         base64: e.target.result,
-      }
-      files.value.push(fileData)
-      taskStore.addFiles([fileData])
+      }])
+      taskStore.setCurrentTask(task.id)
     }
     reader.readAsDataURL(f)
   }
 }
 
 function toggleSelectAll() {
-  files.value.forEach(f => f.selected = selectAll.value)
+  taskStore.setAllSelection(selectAll.value)
 }
 
 function clearCompleted() {
-  const completed = files.value.filter(f => f.status === 'done')
-  completed.forEach(f => taskStore.removeTask(f.id))
-  files.value = files.value.filter(f => f.status !== 'done')
+  taskStore.clearCompleted()
+}
+
+async function saveAllCompleted() {
+  if (!completedItems.value.length || batchSave.isRunning) return
+  batchSave.isRunning = true
+  batchSave.done = 0
+  batchSave.total = completedItems.value.length
+  try {
+    await exportBatch(completedItems.value, {
+      format: batchSave.format,
+      mode: batchSave.mode,
+      output: batchSave.output,
+      onProgress(done, total) {
+        batchSave.done = done
+        batchSave.total = total
+      },
+    })
+    showToast({ type: 'success', message: `已保存 ${batchSave.total} 张识别结果`, duration: 2600 })
+  } catch (e) {
+    showToast({ type: 'error', message: e?.message || '批量保存失败', duration: 5000 })
+  } finally {
+    batchSave.isRunning = false
+  }
 }
 
 function selectFile(file) {
-  taskStore.currentTask = file
+  taskStore.setCurrentTask(file.id)
 }
 
 async function startOCR() {
+  taskStore.tasks.forEach(f => {
+    if (f.status === 'done' || f.status === 'failed') {
+      taskStore.setTaskSelection(f.id, false)
+    }
+  })
+
   const selected = selectedFiles.value
   if (!selected.length) return
 
-  selected.forEach(f => f.status = 'queued')
+  selected.forEach(f => taskStore.setTaskStatus(f.id, 'queued'))
 
   if (selected.length === 1) {
     const file = selected[0]
-    file.status = 'processing'
+    taskStore.setCurrentTask(file.id)
+    taskStore.setTaskStatus(file.id, 'processing')
     try {
       const result = await taskStore.recognizeSingle(file.base64)
       taskStore.setResult(file.id, result)
-      file.status = 'done'
+      taskStore.setTaskStatus(file.id, 'done')
     } catch (e) {
-      file.status = 'failed'
-      // 解析后端错误响应
-      let errCode = 'UNKNOWN'
-      let errMsg = '识别失败，请重试'
-      try {
-        const parsed = typeof e === 'string' ? JSON.parse(e) : e
-        if (parsed?.detail?.code) {
-          errCode = parsed.detail.code
-          errMsg = parsed.detail.message
-        } else if (parsed?.message) {
-          errMsg = parsed.message
-        }
-      } catch (_) {
-        if (typeof e === 'string') errMsg = e
-      }
-      taskStore.setError(file.id, { code: errCode, message: errMsg })
+      const err = parseApiError(e, '识别失败，请重试')
+      taskStore.setTaskStatus(file.id, 'failed')
+      taskStore.setError(file.id, err)
+      showToast({ type: 'error', message: `${file.name}: ${err.message}`, duration: 5000 })
     }
     return
   }
 
-  // 批量处理
   taskStore.isProcessing = true
-  selected.forEach(f => f.status = 'processing')
+  selected.forEach(f => taskStore.setTaskStatus(f.id, 'processing'))
   batchProgress.total = selected.length
   batchProgress.completed = 0
   batchProgress.status = 'processing'
@@ -169,23 +307,25 @@ async function startOCR() {
     const { task_id } = await ocrBatch(selected.map(f => f.base64))
     batchProgress.taskId = task_id
 
-    // 建立 WebSocket 连接监听进度
     ws = await createBatchWebSocket(task_id, (msg) => {
-      if (msg.type === 'progress') {
-        batchProgress.completed = msg.completed
-        const elapsedSec = (Date.now() - batchProgress.startTime) / 1000
-        batchProgress.speed = elapsedSec > 0 ? msg.completed / elapsedSec : 0
+      if (msg.type !== 'progress') return
+      batchProgress.completed = msg.completed
+      const elapsedSec = (Date.now() - batchProgress.startTime) / 1000
+      batchProgress.speed = elapsedSec > 0 ? msg.completed / elapsedSec : 0
 
-        // 更新已完成文件的状态
-        for (let i = 0; i < msg.completed && i < selected.length; i++) {
-          if (selected[i].status !== 'done') {
-            selected[i].status = 'done'
-          }
+      if (typeof msg.index === 'number' && selected[msg.index]) {
+        const target = selected[msg.index]
+        if (msg.result && !msg.result.error) {
+          taskStore.setResult(target.id, msg.result)
+          taskStore.setTaskStatus(target.id, 'done')
+        } else if (msg.error || msg.result?.error) {
+          const message = msg.error || msg.result.error
+          taskStore.setError(target.id, { code: 'OCR_ENGINE_ERROR', message })
+          taskStore.setTaskStatus(target.id, 'failed')
         }
       }
     })
 
-    // 等待 WebSocket 关闭或任务完成
     await new Promise((resolve) => {
       const checkInterval = setInterval(() => {
         if (batchProgress.completed >= batchProgress.total || batchProgress.status === 'cancelled') {
@@ -193,42 +333,55 @@ async function startOCR() {
           resolve()
         }
       }, 500)
-      // 超时保护：60秒
       setTimeout(() => {
         clearInterval(checkInterval)
         resolve()
       }, 60000)
     })
 
+    try {
+      const batchResult = await getBatchResults(batchProgress.taskId)
+      if (batchResult?.results) {
+        for (let i = 0; i < batchResult.results.length && i < selected.length; i++) {
+          const r = batchResult.results[i]
+          if (r && !r.error) {
+            taskStore.setResult(selected[i].id, r)
+            taskStore.setTaskStatus(selected[i].id, 'done')
+          } else if (r?.error) {
+            taskStore.setError(selected[i].id, { code: 'OCR_ENGINE_ERROR', message: r.error })
+            taskStore.setTaskStatus(selected[i].id, 'failed')
+          }
+        }
+      }
+    } catch (e) {
+      const err = parseApiError(e, '获取批量结果失败')
+      showToast({ type: 'error', message: err.message, duration: 5000 })
+    }
+
     if (batchProgress.status !== 'cancelled') {
       batchProgress.status = 'completed'
+      if (configStore.config.notify_enabled) {
+        const successCount = selected.filter(f => f.status === 'done').length
+        const failCount = selected.filter(f => f.status === 'failed').length
+        notifyBatchComplete(successCount, failCount, selected.length)
+      }
     }
   } catch (e) {
-    console.error('批量识别失败:', e)
-    let errCode = 'UNKNOWN'
-    let errMsg = '批量识别失败，请重试'
-    try {
-      const parsed = typeof e === 'string' ? JSON.parse(e) : e
-      if (parsed?.detail?.code) {
-        errCode = parsed.detail.code
-        errMsg = parsed.detail.message
-      } else if (parsed?.message) {
-        errMsg = parsed.message
-      }
-    } catch (_) {
-      if (typeof e === 'string') errMsg = e
-    }
+    const parsedError = parseApiError(e, '批量识别失败，请重试')
     selected.forEach(f => {
-      f.status = 'failed'
-      taskStore.setError(f.id, { code: errCode, message: errMsg })
+      taskStore.setTaskStatus(f.id, 'failed')
+      taskStore.setError(f.id, parsedError)
     })
+    showToast({ type: 'error', message: parsedError.message, duration: 6000 })
+    if (configStore.config.notify_enabled) {
+      notifyBatchFailed(parsedError.message)
+    }
   } finally {
     taskStore.isProcessing = false
     if (ws) {
       ws.close()
       ws = null
     }
-    // 3秒后隐藏进度条
     setTimeout(() => {
       if (batchProgress.status !== 'processing') {
         batchProgress.total = 0
@@ -248,11 +401,12 @@ async function cancelBatch() {
       ws = null
     }
   } catch (e) {
-    console.error('取消失败:', e)
+    showToast({ type: 'error', message: '取消批量任务失败', duration: 3000 })
   }
 }
 
 function formatSize(b) {
+  if (!b) return '--'
   if (b < 1024) return b + ' B'
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
   return (b / (1024 * 1024)).toFixed(1) + ' MB'
@@ -265,124 +419,431 @@ function statusText(s) {
 </script>
 
 <style scoped>
-.upload-zone {
-  padding: 20px;
-  height: 100%;
+.workbench-upload {
+  min-height: 100%;
+}
+
+.drop-area {
+  min-height: calc(100vh - 220px);
+  display: grid;
+  place-items: center;
+  background: var(--v-bg);
+  border: 2px dashed var(--v-paper);
+  border-radius: var(--r4);
+  color: var(--v-text-muted);
+  cursor: pointer;
+  padding: var(--s8);
+  transition:
+    border-color var(--dur-base) var(--ease-cut),
+    box-shadow var(--dur-base) var(--ease-cut),
+    background-color var(--dur-base) var(--ease-cut);
+}
+
+.drop-area:hover,
+.drop-area.active {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+  background: color-mix(in srgb, var(--v-bg) 86%, var(--v-accent-dim) 14%);
+}
+
+.empty-copy {
+  text-align: center;
+}
+
+.empty-title {
+  text-align: center;
+}
+
+.empty-subtitle {
+  margin-top: var(--s3);
+  font-size: var(--fs-body);
+  color: var(--v-text-muted);
+  text-align: center;
+}
+
+.local-idle {
+  margin-top: var(--s6);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--v-accent);
+}
+
+.preview-stage {
+  width: min(620px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: var(--s5);
+  align-items: center;
+}
+
+.paper-sheet {
+  position: relative;
+  min-height: 320px;
+  background: var(--v-paper);
+  color: var(--v-coal);
+  border-radius: var(--r3);
+  overflow: hidden;
+  padding: var(--s8);
+}
+
+.doc-line {
+  display: block;
+  height: 6px;
+  width: 70%;
+  margin-bottom: var(--s4);
+  background: color-mix(in srgb, var(--v-coal) 54%, transparent);
+  border-radius: var(--r1);
+}
+
+.doc-line.wide {
+  width: 86%;
+}
+
+.doc-line.short {
+  width: 44%;
+}
+
+.doc-crease {
+  position: absolute;
+  top: 15%;
+  left: 58%;
+  width: 1px;
+  height: 70%;
+  background: color-mix(in srgb, var(--v-coal) 36%, transparent);
+  transform: rotate(-8deg);
+}
+
+.pipeline {
   display: flex;
   flex-direction: column;
+  gap: var(--s3);
 }
-.drop-area {
-  border: 2px dashed #d1d1d6;
-  border-radius: 12px;
-  padding: 40px 24px;
-  text-align: center;
-  color: #8e8e93;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: #fafafa;
+
+.pipeline-node {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--v-text-muted);
 }
-.drop-area:hover {
-  border-color: #1a1a2e;
-  color: #1a1a2e;
-  background: #f2f2f7;
+
+.pipeline-node span {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--v-border);
+  border-radius: 50%;
 }
-.hint { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
-.sub { font-size: 12px; }
-.file-list { margin-top: 16px; flex: 1; overflow-y: auto; }
-.toolbar {
+
+.pipeline-node.is-done,
+.pipeline-node.is-current {
+  color: var(--v-accent);
+}
+
+.pipeline-node.is-done span {
+  background: var(--v-accent);
+  border-color: var(--v-accent);
+}
+
+.pipeline-node.is-current span {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+}
+
+.queue-rail {
   display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.rail-head {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #f0f0f0;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
 }
-.check-all { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
-.actions { display: flex; gap: 8px; }
-button {
-  padding: 6px 14px;
-  border: 1px solid #d1d1d6;
-  background: #fff;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: all 0.15s;
+
+.rail-kicker {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--v-text-faint);
+  letter-spacing: 0.08em;
 }
-button:hover { border-color: #1a1a2e; }
-button.primary {
-  background: #1a1a2e;
-  color: #fff;
-  border-color: #1a1a2e;
+
+.rail-title {
+  margin-top: var(--s1);
+  font-size: var(--fs-h2);
 }
-button:disabled { opacity: 0.4; cursor: not-allowed; }
-.file-item {
+
+.queue-count {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  line-height: 1;
+  color: var(--v-accent);
+}
+
+.batch-panel {
+  background: var(--v-panel-raised);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r4);
+  padding: var(--s4);
+  margin-bottom: var(--s4);
+}
+
+.batch-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 8px;
-  transition: background 0.15s;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--v-text-muted);
+}
+
+.batch-row.muted {
+  margin-top: var(--s2);
+}
+
+.progress-value {
+  color: var(--v-accent);
+}
+
+.queue-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+
+.check-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--v-text-muted);
+  font-size: var(--fs-caption);
   cursor: pointer;
 }
-.file-item:hover { background: #f9f9fb; }
-.file-item.processing { background: #e6f2ff; }
-.file-item.done { background: #f0fff4; }
-.file-item.failed { background: #fff0f0; }
-.thumb {
-  width: 48px;
-  height: 48px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #e5e5e5;
+
+input[type="checkbox"] {
+  accent-color: var(--v-accent);
 }
-.info { flex: 1; min-width: 0; }
-.name {
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
+
+.text-btn {
+  background: transparent;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  color: var(--v-text-muted);
+  cursor: pointer;
+  font-size: var(--fs-caption);
+  min-height: 28px;
+  padding-inline: var(--s2);
+}
+
+.text-btn:hover {
+  color: var(--v-text);
+  border-color: var(--v-border-strong);
+}
+
+.text-btn.danger {
+  color: var(--v-error);
+  border-color: var(--v-error-dim);
+}
+
+.queue-command-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: var(--s2);
+}
+
+.start-btn,
+.save-all-btn {
+  width: 100%;
+  height: 36px;
+  border-radius: var(--r3);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  margin-bottom: var(--s4);
+}
+
+.start-btn {
+  border: 0;
+  background: var(--v-accent);
+  color: var(--v-coal);
+}
+
+.save-all-btn {
+  background: transparent;
+  color: var(--v-text-muted);
+  border: 1px solid var(--v-border);
+}
+
+.start-btn.compact {
+  margin-bottom: 0;
+}
+
+.start-btn:disabled,
+.save-all-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.batch-save-popover {
+  display: grid;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+  padding: var(--s3);
+  background: var(--v-panel);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+}
+
+.batch-save-popover label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  color: var(--v-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.batch-save-popover select {
+  min-height: 32px;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
+  background: var(--v-bg);
+  color: var(--v-text);
+}
+
+.upload-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  overflow: auto;
+}
+
+.upload-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 14px 42px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s2);
+  text-align: left;
+  background: var(--v-panel-raised);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  padding: var(--s2);
+  color: var(--v-text);
+  cursor: pointer;
+}
+
+.upload-row:hover {
+  border-color: var(--v-border-strong);
+}
+
+.upload-row.active {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+}
+
+.upload-row.processing {
+  border-color: var(--v-accent);
+}
+
+.upload-row.failed {
+  border-color: var(--v-error);
+  background: color-mix(in srgb, var(--v-error-dim) 50%, var(--v-panel) 50%);
+}
+
+.thumb {
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: var(--r2);
+  border: 1px solid var(--v-border);
+}
+
+.thumb.placeholder {
+  display: grid;
+  place-items: center;
+  background: var(--v-bg);
+  color: var(--v-text-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.file-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-small);
+  color: var(--v-text);
 }
-.meta { font-size: 11px; color: #8e8e93; margin-top: 2px; }
 
-.batch-progress {
-  margin: 12px 0;
-  padding: 12px 16px;
-  background: #f9f9fb;
-  border-radius: 10px;
-  border: 1px solid #e5e5e5;
-}
-.progress-bar {
-  height: 8px;
-  background: #e5e5e5;
-  border-radius: 4px;
+.file-meta {
   overflow: hidden;
-  margin-bottom: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--v-text-muted);
 }
-.progress-fill {
-  height: 100%;
-  background: #1a1a2e;
-  border-radius: 4px;
-  transition: width 0.3s ease;
+
+.queue-empty {
+  flex: 1;
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  gap: var(--s3);
+  color: var(--v-text-faint);
+  font-size: var(--fs-caption);
+  border: 1px dashed var(--v-border);
+  border-radius: var(--r3);
 }
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: #666;
+
+.empty-line {
+  width: 42px;
+  height: 1px;
+  background: var(--v-border-strong);
 }
-.cancel-btn {
-  padding: 4px 10px;
-  border: 1px solid #ff4d4f;
-  background: #fff;
-  color: #ff4d4f;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-}
-.cancel-btn:hover {
-  background: #ff4d4f;
-  color: #fff;
+
+@media (max-width: 767px) {
+  .queue-rail {
+    min-height: 0;
+  }
+
+  .rail-head,
+  .batch-panel,
+  .queue-actions,
+  .start-btn,
+  .queue-empty {
+    display: none;
+  }
+
+  .upload-list {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .upload-row {
+    min-width: 220px;
+  }
+
+  .drop-area {
+    min-height: 360px;
+    padding: var(--s5);
+  }
+
+  .preview-stage {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

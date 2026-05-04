@@ -13,6 +13,26 @@
       <div class="splash-text">VonishOCR</div>
     </div>
     <div id="app"></div>
+    <!-- 5 秒硬超时：即使 Vue 挂载失败也强制隐藏 splash -->
+    <script>
+      setTimeout(() => {
+        const s = document.getElementById('splash');
+        if (s) { s.classList.add('hidden'); setTimeout(() => s.remove(), 400); }
+      }, 5000);
+      // 全局错误捕获，显示在页面上方便诊断
+      window.onerror = (msg, url, line) => {
+        const e = document.createElement('div');
+        e.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#d32f2f;color:#fff;padding:12px;font-size:12px;z-index:99999;white-space:pre-wrap;';
+        e.textContent = 'JS Error: ' + msg + ' at ' + url + ':' + line;
+        document.body.appendChild(e);
+      };
+      window.addEventListener('unhandledrejection', (ev) => {
+        const e = document.createElement('div');
+        e.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#d32f2f;color:#fff;padding:12px;font-size:12px;z-index:99999;white-space:pre-wrap;';
+        e.textContent = 'Unhandled Rejection: ' + ev.reason;
+        document.body.appendChild(e);
+      });
+    </script>
     <script type="module" src="/src/main.js"></script>
     <style>
       #splash {

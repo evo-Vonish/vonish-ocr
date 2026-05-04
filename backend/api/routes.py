@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from PIL import Image
 from fastapi import APIRouter, Body, File, Form, Request, UploadFile, WebSocket, HTTPException
+from fastapi.responses import StreamingResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
     image_b64 = payload.get("image", "")
     options = payload.get("options", {}) or {}
     model_id = payload.get("model", "rapidocr-mobile-cn")
+    engine_mgr = request.app.state.engine_manager
+    if model_id == "auto" or model_id not in engine_mgr._factories:
+        model_id = "rapidocr-mobile-cn"  # fallback 到极速版，避免 auto 报错
 
     if not image_b64:
         raise HTTPException(status_code=400, detail={"code": "MISSING_IMAGE", "message": "缺少 image 字段"})
@@ -93,10 +97,16 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
     _, encoded = cv2.imencode('.png', processed_image)
     processed_bytes = encoded.tobytes()
 
-    engine_mgr = request.app.state.engine_manager
-
-    # 如果引擎未加载，尝试自动加载
+    # 如果引擎未加载，尝试自动加载（切换模型时先卸载旧模型节省显存）
     if model_id not in engine_mgr.engines:
+        # 卸载其他已加载模型，避免显存堆积
+        for loaded_id in list(engine_mgr.engines.keys()):
+            if loaded_id != model_id:
+                try:
+                    await engine_mgr.unload(loaded_id)
+                    logger.info("切换模型时卸载旧模型: %s", loaded_id)
+                except Exception:
+                    pass
         try:
             await engine_mgr.load(model_id)
         except ValueError as e:
@@ -135,9 +145,9 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
             model=ai_cfg.model,
             temperature=ai_cfg.temperature,
             trigger_mode=ai_cfg.trigger_mode,
+            schemes=request.app.state.config_manager.get_active_ai_scheme_with_failover(),
         )
 
-        scene_type = options.get("scene", "print")
         ai_result = await refiner.refine(
             raw_text=result.get("text", ""),
             scene_type=scene_type,
@@ -198,7 +208,7 @@ async def ocr_batch_json(request: Request, payload: dict = Body(...)):
     options = payload.get("options", {}) or {}
     images = []
     total_size = 0
-    MAX_BATCH_SIZE = 50 * 1024 * 1024
+    MAX_BATCH_SIZE = 500 * 1024 * 1024  # 500MB，支持 50+ 张截图批量
     for b64 in images_b64:
         if "," in b64:
             b64 = b64.split(",", 1)[1]
@@ -223,6 +233,15 @@ async def ocr_batch_cancel(request: Request, task_id: str):
     return {"task_id": task_id, "cancelled": ok}
 
 
+@router.get("/v1/ocr/batch/{task_id}/results")
+async def ocr_batch_results(request: Request, task_id: str):
+    """获取批量任务的识别结果（每张图一个结果）。"""
+    results = request.app.state.queue.get_result(task_id)
+    if results is None:
+        raise HTTPException(status_code=404, detail={"code": "TASK_NOT_FOUND", "message": "任务未完成或不存在"})
+    return {"task_id": task_id, "results": results}
+
+
 @router.get("/v1/models")
 async def list_models(request: Request):
     mm = request.app.state.model_manager
@@ -238,8 +257,18 @@ async def list_local_models(request: Request):
 
 
 @router.post("/v1/models/{model_id}/pull")
-async def pull_model(model_id: str):
-    return {"model_id": model_id, "status": "Phase 0 stub - download not implemented"}
+async def pull_model(request: Request, model_id: str):
+    from models.model_puller import ModelPuller
+
+    puller = ModelPuller(request.app.state.model_manager)
+    try:
+        path = await puller.pull(model_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "MODEL_PULL_ERROR", "message": str(e)})
+    except Exception as e:
+        logger.exception("模型下载失败")
+        raise HTTPException(status_code=500, detail={"code": "MODEL_PULL_ERROR", "message": f"模型下载失败: {e}"})
+    return {"model_id": model_id, "status": "installed", "path": str(path)}
 
 
 @router.get("/v1/config")
@@ -256,18 +285,92 @@ async def save_config(request: Request, payload: dict):
     return {"status": "saved"}
 
 
-async def _ws_progress_callback(task_id: str, completed: int, total: int, result):
+@router.get("/v1/ai/schemes")
+async def list_ai_schemes(request: Request):
+    """列出 AI 修复方案；API Key 只返回是否已保存，不返回明文。"""
+    cfg = request.app.state.config_manager.load()
+    return {
+        "schemes": request.app.state.config_manager.list_ai_schemes(include_keys=False),
+        "active_scheme_id": cfg.active_ai_scheme_id,
+    }
+
+
+@router.post("/v1/ai/schemes")
+async def upsert_ai_scheme(request: Request, payload: dict = Body(...)):
+    """新增或更新 AI 修复方案，API Key 写入系统加密存储。"""
+    try:
+        scheme = request.app.state.config_manager.upsert_ai_scheme(payload)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={"code": "AI_SCHEME_INVALID", "message": str(e)})
+    data = scheme.model_dump()
+    data.pop("api_key", None)
+    return {"scheme": data}
+
+
+@router.post("/v1/ai/schemes/active")
+async def set_active_ai_scheme(request: Request, payload: dict = Body(...)):
+    """切换当前 AI 修复方案，后续 OCR 和手动精修实时生效。"""
+    scheme_id = payload.get("scheme_id")
+    if not scheme_id:
+        raise HTTPException(status_code=400, detail={"code": "MISSING_SCHEME_ID", "message": "缺少 scheme_id"})
+    try:
+        request.app.state.config_manager.set_active_ai_scheme(scheme_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={"code": "AI_SCHEME_NOT_FOUND", "message": str(e)})
+    return {"status": "active", "scheme_id": scheme_id}
+
+
+@router.post("/v1/ai/refine/stream")
+async def refine_stream(request: Request, payload: dict = Body(...)):
+    """SSE 流式输出 AI 精修文本，前端可随时 Abort 停止。"""
+    from ai_refiner import AIRefiner
+
+    raw_text = payload.get("text") or ""
+    scene_type = payload.get("scene_type") or "printed_document"
+    confidence = float(payload.get("confidence") or 0)
+    if not raw_text:
+        raise HTTPException(status_code=400, detail={"code": "MISSING_TEXT", "message": "缺少待精修文本"})
+
+    cfg = request.app.state.config_manager.load()
+    ai_cfg = cfg.ai
+    refiner = AIRefiner(
+        enabled=True,
+        provider=ai_cfg.provider,
+        api_key=ai_cfg.api_key,
+        api_base=ai_cfg.api_base,
+        model=ai_cfg.model,
+        temperature=ai_cfg.temperature,
+        trigger_mode="always",
+        schemes=request.app.state.config_manager.get_active_ai_scheme_with_failover(),
+    )
+
+    async def event_source():
+        async for event in refiner.refine_stream(raw_text, scene_type, confidence):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_source(), media_type="text/event-stream")
+
+
+async def _ws_progress_callback(task_id: str, completed: int, total: int, result, index: int | None = None):
     """进度回调：通过 WebSocket 推送给前端。"""
     ws = _ws_connections.get(task_id)
     if ws:
         try:
-            await ws.send_json({
+            payload = {
                 "type": "progress",
                 "task_id": task_id,
                 "completed": completed,
                 "total": total,
                 "progress": round(completed / total, 4) if total > 0 else 0,
-            })
+            }
+            if index is not None:
+                payload["index"] = index
+            if isinstance(result, dict):
+                if result.get("error"):
+                    payload["error"] = result["error"]
+                elif result.get("type") != "complete":
+                    payload["result"] = result
+            await ws.send_json(payload)
         except Exception:
             pass
 

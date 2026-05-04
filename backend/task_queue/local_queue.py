@@ -5,11 +5,11 @@ from typing import Callable, Dict, List, Optional
 
 
 class LocalQueue:
-    def __init__(self, max_workers: int = 4, concurrency: int = 8):
+    def __init__(self, max_workers: int = 4, concurrency: int = 3):
         self.queue = asyncio.Queue()
         self.tasks: Dict[str, dict] = {}
         self.max_workers = max_workers
-        self.concurrency = concurrency
+        self.concurrency = concurrency  # 5060 8G 显存，单张推理约 1-2G，3 并发安全
         self._workers: List[asyncio.Task] = []
         self._shutdown = False
         self._progress_callbacks: Dict[str, Callable] = {}
@@ -30,7 +30,7 @@ class LocalQueue:
         return task_id
 
     def register_progress_callback(self, task_id: str, callback: Callable) -> None:
-        """注册进度回调：callback(task_id, completed, total, result_or_none)"""
+        """注册进度回调：callback(task_id, completed, total, result_or_none, index_or_none)"""
         self._progress_callbacks[task_id] = callback
 
     def get_status(self, task_id: str) -> dict:
@@ -97,7 +97,7 @@ class LocalQueue:
             cb_start = self._progress_callbacks.get(task_id)
             if cb_start:
                 try:
-                    await cb_start(task_id, 0, task["total"], None)
+                    await cb_start(task_id, 0, task["total"], None, None)
                 except Exception:
                     pass
 
@@ -126,13 +126,17 @@ class LocalQueue:
                     except Exception as e:
                         results[idx] = {"error": str(e)}
                         task["failed"] += 1
+                    finally:
+                        # 显式释放内存，防止 numpy/PIL 临时对象堆积
+                        import gc
+                        gc.collect()
                     task["completed"] += 1
 
                     # 触发进度回调
                     cb = self._progress_callbacks.get(task_id)
                     if cb:
                         try:
-                            await cb(task_id, task["completed"], task["total"], results[idx])
+                            await cb(task_id, task["completed"], task["total"], results[idx], idx)
                         except Exception:
                             pass
 
@@ -146,7 +150,7 @@ class LocalQueue:
             cb_end = self._progress_callbacks.get(task_id)
             if cb_end:
                 try:
-                    await cb_end(task_id, task["total"], task["total"], {"type": "complete"})
+                    await cb_end(task_id, task["total"], task["total"], {"type": "complete"}, None)
                 except Exception:
                     pass
             self.queue.task_done()
