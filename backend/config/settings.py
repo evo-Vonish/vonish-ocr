@@ -41,6 +41,7 @@ class UserConfig(BaseModel):
     active_ai_scheme_id: Optional[str] = None
     output_mode: str = "smart"
     include_diff: bool = False
+    batch_ai_refine: bool = False
     redact_sensitive: bool = False
     power_mode: str = "balanced"
     preload_model: bool = True

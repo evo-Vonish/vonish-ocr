@@ -16,6 +16,7 @@ use std::os::windows::process::CommandExt;
 struct AppState {
     python_port: RwLock<u16>,
     python_pid: RwLock<Option<u32>>,
+    python_child: RwLock<Option<std::process::Child>>,
     client: reqwest::Client,
 }
 
@@ -214,7 +215,7 @@ async fn find_available_port() -> Result<u16, std::io::Error> {
     Ok(addr.port())
 }
 
-async fn start_python_sidecar() -> Result<(u16, u32), String> {
+async fn start_python_sidecar() -> Result<(u16, u32, std::process::Child), String> {
     // 找一个可用端口
     let port = find_available_port()
         .await
@@ -291,7 +292,7 @@ async fn start_python_sidecar() -> Result<(u16, u32), String> {
                     .get("port")
                     .and_then(|p| p.as_u64())
                     .unwrap_or(port as u64) as u16;
-                return Ok((actual_port, pid));
+                return Ok((actual_port, pid, child));
             }
         }
     }
@@ -323,10 +324,10 @@ fn main() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             python_port: RwLock::new(0),
             python_pid: RwLock::new(None),
+            python_child: RwLock::new(None),
             client: reqwest::Client::new(),
         })
         .setup(|app| {
@@ -335,9 +336,10 @@ fn main() {
             // 启动 Python sidecar
             tauri::async_runtime::block_on(async move {
                 match start_python_sidecar().await {
-                    Ok((port, pid)) => {
+                    Ok((port, pid, child)) => {
                         *state.python_port.write().await = port;
                         *state.python_pid.write().await = Some(pid);
+                        *state.python_child.write().await = Some(child);
                         println!("Python sidecar ready on port {} (PID: {})", port, pid);
                     }
                     Err(e) => {
@@ -350,17 +352,30 @@ fn main() {
             let show_i = MenuItemBuilder::new("显示主窗口")
                 .id("show")
                 .build(app)?;
-            let quit_i = MenuItemBuilder::new("退出")
+            let hide_i = MenuItemBuilder::new("隐藏到托盘")
+                .id("hide")
+                .build(app)?;
+            let logs_i = MenuItemBuilder::new("打开后端日志")
+                .id("logs")
+                .build(app)?;
+            let models_i = MenuItemBuilder::new("打开模型目录")
+                .id("models")
+                .build(app)?;
+            let docs_i = MenuItemBuilder::new("打开项目文档")
+                .id("docs")
+                .build(app)?;
+            let quit_i = MenuItemBuilder::new("退出 VonishOCR")
                 .id("quit")
                 .build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&show_i, &quit_i])
+                .items(&[&show_i, &hide_i, &logs_i, &models_i, &docs_i, &quit_i])
                 .build()?;
 
             // 安全设置托盘图标（开发模式下 default_window_icon 可能为 None）
             let icon = app.default_window_icon().cloned();
             let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
+                .tooltip("VonishOCR")
                 .on_menu_event(|app, event| {
                     match event.id().as_ref() {
                         "show" => {
@@ -368,6 +383,23 @@ fn main() {
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
+                        }
+                        "hide" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                        }
+                        "logs" => {
+                            let path = std::env::current_dir().unwrap_or_default().join("logs");
+                            let _ = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>);
+                        }
+                        "models" => {
+                            let path = std::env::current_dir().unwrap_or_default().join("models");
+                            let _ = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>);
+                        }
+                        "docs" => {
+                            let path = std::env::current_dir().unwrap_or_default().join("README.md");
+                            let _ = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>);
                         }
                         "quit" => {
                             let state: State<'_, AppState> = app.state();
@@ -434,6 +466,8 @@ fn main() {
                     if let Some(pid) = *state.python_pid.read().await {
                         kill_python_process(pid);
                     }
+                    // 释放 Child 句柄，避免管道提前关闭导致 Python BrokenPipe
+                    let _ = state.python_child.write().await.take();
                 });
             }
             _ => {}

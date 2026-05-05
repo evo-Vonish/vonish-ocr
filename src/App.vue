@@ -92,7 +92,8 @@
       <span class="v-readout">{{ reviewStatus }}</span>
     </footer>
 
-    <ConfigDrawer v-model:visible="showConfig" />
+    <ConfigDrawer v-model:visible="showConfig" @open-ai-center="showAIProviderCenter = true" />
+    <AIProviderModal v-model:visible="showAIProviderCenter" />
     <ToastStack />
     <DialogSystem />
   </div>
@@ -106,6 +107,7 @@ import { useThemeStore } from './stores/themeStore'
 import UploadZone from './components/UploadZone.vue'
 import ResultPanel from './components/ResultPanel.vue'
 import ConfigDrawer from './components/ConfigDrawer.vue'
+import AIProviderModal from './components/AIProviderModal.vue'
 import ToastStack from './components/ToastStack.vue'
 import DialogSystem from './components/DialogSystem.vue'
 
@@ -115,6 +117,7 @@ const taskStore = useTaskStore()
 const configStore = useConfigStore()
 const themeStore = useThemeStore()
 const showConfig = ref(false)
+const showAIProviderCenter = ref(false)
 
 const themeButtonLabel = computed(() => {
   const theme = themeStore.resolvedTheme

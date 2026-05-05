@@ -124,6 +124,33 @@ async def lifespan(app: FastAPI):
             result["preprocess_time_ms"] = preprocess_meta["time_ms"]
             if preprocess_meta["used_original"]:
                 result["preprocess_used_original"] = True
+
+            if opts.get("ai_refine_batch") and getattr(cfg, "ai", None) and cfg.ai.enabled:
+                try:
+                    import asyncio
+                    from ai_refiner import AIRefiner
+
+                    ai_cfg = cfg.ai
+                    refiner = AIRefiner(
+                        enabled=True,
+                        provider=ai_cfg.provider,
+                        api_key=ai_cfg.api_key,
+                        api_base=ai_cfg.api_base,
+                        model=ai_cfg.model,
+                        temperature=ai_cfg.temperature,
+                        trigger_mode="always",
+                        schemes=app.state.config_manager.get_active_ai_scheme_with_failover(),
+                    )
+                    ai_result = await refiner.refine(
+                        raw_text=result.get("text", ""),
+                        scene_type=scene_type,
+                        ocr_confidence=result.get("confidence", 0.0),
+                    )
+                    if (opts.get("output_mode") or cfg.output_mode or "smart") == "polished":
+                        result["text"] = ai_result.get("polished", result.get("text", ""))
+                    result["ai"] = ai_result
+                except Exception as e:
+                    logging.warning("Batch AI refine failed; raw OCR kept: %s", e)
             return result
 
         def recognize_sync_wrapper(img_bytes, opts):
@@ -174,6 +201,33 @@ async def lifespan(app: FastAPI):
                 result["preprocess_used_original"] = True
 
             # 显式释放大对象，防止内存堆积
+            if opts.get("ai_refine_batch") and getattr(cfg, "ai", None) and cfg.ai.enabled:
+                try:
+                    import asyncio
+                    from ai_refiner import AIRefiner
+
+                    ai_cfg = cfg.ai
+                    refiner = AIRefiner(
+                        enabled=True,
+                        provider=ai_cfg.provider,
+                        api_key=ai_cfg.api_key,
+                        api_base=ai_cfg.api_base,
+                        model=ai_cfg.model,
+                        temperature=ai_cfg.temperature,
+                        trigger_mode="always",
+                        schemes=app.state.config_manager.get_active_ai_scheme_with_failover(),
+                    )
+                    ai_result = asyncio.run(refiner.refine(
+                        raw_text=result.get("text", ""),
+                        scene_type=scene_type,
+                        ocr_confidence=result.get("confidence", 0.0),
+                    ))
+                    if (opts.get("output_mode") or cfg.output_mode or "smart") == "polished":
+                        result["text"] = ai_result.get("polished", result.get("text", ""))
+                    result["ai"] = ai_result
+                except Exception as e:
+                    logging.warning("Batch AI refine failed; raw OCR kept: %s", e)
+
             del img_array, processed_image, encoded, processed_bytes
             if classifier:
                 del classifier

@@ -50,7 +50,9 @@
                 <option value="always">每张图都修复</option>
                 <option value="manual">仅手动触发</option>
               </select>
-              <AIProviderCenter />
+              <label><input type="checkbox" v-model="config.batch_ai_refine" /> 批量识别也执行 AI 修复</label>
+              <p class="hint-text">批量 AI 修复会逐图调用当前方案，速度和费用都更高，默认关闭。</p>
+              <button class="wide-action" type="button" @click="emit('open-ai-center')">打开 API 方案中心</button>
             </section>
 
             <section>
@@ -74,6 +76,7 @@
               <h4>系统通知</h4>
               <label><input type="checkbox" v-model="config.notify_enabled" /> 窗口最小化时弹出系统通知</label>
               <p class="hint-text">仅在窗口最小化到任务栏时，批量识别完成后弹出 Windows 原生通知。</p>
+              <button class="wide-action" type="button" @click="testNativeNotify">测试系统通知</button>
             </section>
 
             <section>
@@ -105,10 +108,10 @@ import { ref, reactive, watch, computed } from 'vue'
 import { useConfigStore } from '../stores/configStore'
 import { useThemeStore } from '../stores/themeStore'
 import { showToast } from '../composables/useToast'
-import AIProviderCenter from './AIProviderCenter.vue'
+import { notify } from '../composables/useNotify'
 
 const props = defineProps({ visible: Boolean })
-const emit = defineEmits(['update:visible'])
+const emit = defineEmits(['update:visible', 'open-ai-center'])
 const configStore = useConfigStore()
 const themeStore = useThemeStore()
 
@@ -140,6 +143,7 @@ const config = reactive({
   },
   output_mode: 'smart',
   include_diff: false,
+  batch_ai_refine: false,
   power_mode: 'balanced',
 })
 
@@ -149,6 +153,11 @@ watch(() => props.visible, (v) => {
 
 function openDir() {
   configStore.openModelsFolder()
+}
+
+async function testNativeNotify() {
+  await notify({ title: 'VonishOCR', body: '系统通知已连接。', force: true })
+  showToast({ type: 'success', message: '已发送测试通知', duration: 2200 })
 }
 
 async function save() {
@@ -335,6 +344,24 @@ async function save() {
 .save-btn:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+.wide-action {
+  width: 100%;
+  min-height: 36px;
+  margin-top: var(--s3);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  background: var(--v-bg);
+  color: var(--v-text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.wide-action:hover {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
 }
 
 .slide-enter-active,

@@ -5,16 +5,23 @@ import { showToast } from '../composables/useToast'
 
 function _parseJson(text) {
   if (typeof text === 'string') {
+    const trimmed = text.trim()
+    if (!trimmed) {
+      console.error('[_parseJson] 后端返回空响应')
+      showToast({ type: 'error', message: '后端无响应，Python sidecar 可能已崩溃', duration: 5000 })
+      throw new Error('后端无响应，请重启应用')
+    }
     try {
-      const data = JSON.parse(text)
+      const data = JSON.parse(trimmed)
       if (data?.detail?.code) {
         throw data
       }
       return data
     } catch (e) {
       if (e?.detail?.code) throw e
+      console.error('[_parseJson] 后端返回非JSON:', trimmed.slice(0, 500))
       showToast({ type: 'error', message: '后端响应格式错误，请重启应用后重试', duration: 5000 })
-      throw new Error('后端响应格式错误: ' + text)
+      throw new Error('后端响应格式错误: ' + trimmed.slice(0, 200))
     }
   }
   if (text?.detail?.code) throw text
@@ -272,24 +279,20 @@ export async function setActiveAIScheme(schemeId) {
 export async function streamAIRefine(payload, { signal, onEvent } = {}) {
   const port = await getPythonPort()
   const url = `http://127.0.0.1:${port}/v1/ai/refine/stream`
-  console.log('[streamAIRefine] POST', url, payload)
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
     signal,
   })
-  console.log('[streamAIRefine] response status:', res.status, res.statusText)
   if (!res.ok) {
     const err = await _jsonOrThrow(res)
-    console.log('[streamAIRefine] error response:', err)
     throw err
   }
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  let eventCount = 0
   while (true) {
     const { value, done } = await reader.read()
     if (done) break
@@ -300,12 +303,9 @@ export async function streamAIRefine(payload, { signal, onEvent } = {}) {
       const line = chunk.split('\n').find(part => part.startsWith('data: '))
       if (!line) continue
       const event = JSON.parse(line.slice(6))
-      eventCount++
-      console.log('[streamAIRefine] event #' + eventCount, event.type)
       onEvent?.(event)
     }
   }
-  console.log('[streamAIRefine] stream end, total events:', eventCount)
 }
 
 // 打开模型目录

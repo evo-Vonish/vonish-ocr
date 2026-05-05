@@ -304,7 +304,11 @@ async function startOCR() {
   batchProgress.speed = 0
 
   try {
-    const { task_id } = await ocrBatch(selected.map(f => f.base64))
+    const { task_id } = await ocrBatch(selected.map(f => f.base64), {
+      model: configStore.config.ocr_model || 'rapidocr-mobile-cn',
+      output_mode: configStore.config.output_mode || 'smart',
+      ai_refine_batch: !!configStore.config.batch_ai_refine,
+    })
     batchProgress.taskId = task_id
 
     ws = await createBatchWebSocket(task_id, (msg) => {
@@ -363,7 +367,7 @@ async function startOCR() {
       if (configStore.config.notify_enabled) {
         const successCount = selected.filter(f => f.status === 'done').length
         const failCount = selected.filter(f => f.status === 'failed').length
-        notifyBatchComplete(successCount, failCount, selected.length)
+        await notifyBatchComplete(successCount, failCount, selected.length)
       }
     }
   } catch (e) {
@@ -374,7 +378,7 @@ async function startOCR() {
     })
     showToast({ type: 'error', message: parsedError.message, duration: 6000 })
     if (configStore.config.notify_enabled) {
-      notifyBatchFailed(parsedError.message)
+      await notifyBatchFailed(parsedError.message)
     }
   } finally {
     taskStore.isProcessing = false

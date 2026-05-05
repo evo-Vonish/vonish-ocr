@@ -1,5 +1,5 @@
 <template>
-  <section class="ai-center">
+  <section class="ai-center" :class="{ wide: layout === 'wide' }">
     <header class="ai-head">
       <div>
         <div class="section-kicker">AI FAILOVER</div>
@@ -75,6 +75,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useConfigStore } from '../stores/configStore'
 import { showToast } from '../composables/useToast'
+
+defineProps({
+  layout: {
+    type: String,
+    default: 'compact',
+  },
+})
 
 const configStore = useConfigStore()
 const editing = ref(false)
@@ -171,6 +178,10 @@ function providerShort(type) {
   gap: var(--s3);
 }
 
+.ai-center.wide {
+  gap: var(--s5);
+}
+
 .ai-head {
   display: flex;
   align-items: flex-start;
@@ -195,6 +206,12 @@ function providerShort(type) {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
+}
+
+.ai-center.wide .scheme-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3);
 }
 
 .scheme-card,
@@ -261,6 +278,21 @@ function providerShort(type) {
   border-top: 1px solid var(--v-border);
 }
 
+.ai-center.wide .scheme-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s4);
+  padding: var(--s4);
+  background: var(--v-panel);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+}
+
+.ai-center.wide .scheme-form .hint-text,
+.ai-center.wide .scheme-form .form-actions {
+  grid-column: 1 / -1;
+}
+
 .form-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -285,5 +317,12 @@ function providerShort(type) {
   color: var(--v-coal);
   border: 0;
   font-weight: var(--fw-semibold);
+}
+
+@media (max-width: 760px) {
+  .ai-center.wide .scheme-list,
+  .ai-center.wide .scheme-form {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

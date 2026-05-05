@@ -6,7 +6,6 @@
   "permissions": [
     "core:default",
     "shell:allow-open",
-    "opener:default",
-    "notification:default"
+    "opener:default"
   ]
 }

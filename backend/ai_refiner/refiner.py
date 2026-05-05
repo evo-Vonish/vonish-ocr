@@ -1,6 +1,7 @@
 import json
 import logging
 import asyncio
+import re
 from typing import Optional
 
 import aiohttp
@@ -175,8 +176,7 @@ class AIRefiner:
             "model": scheme.get("model") or self.model,
             "messages": messages,
             "temperature": self.temperature,
-            "max_tokens": 4096,
-            "response_format": {"type": "json_object"},
+            "max_tokens": 8192,
         }
         base_url = scheme.get("api_base") or self._default_base_url(scheme.get("provider_type"))
         url = f"{base_url.rstrip('/')}/chat/completions"
@@ -203,22 +203,76 @@ class AIRefiner:
                     raise RuntimeError(f"[{resp.status}] {err_msg}")
                 result = await resp.json()
                 content = result["choices"][0]["message"]["content"]
-                # 去除可能的 markdown 代码块标记
-                cleaned = content.strip()
-                if cleaned.startswith("```"):
-                    lines = cleaned.splitlines()
-                    # 去掉开头的 ```json 或 ```
-                    if lines[0].startswith("```"):
-                        lines = lines[1:]
-                    # 去掉结尾的 ```
-                    if lines and lines[-1].strip() == "```":
-                        lines = lines[:-1]
-                    cleaned = "\n".join(lines).strip()
-                try:
-                    return json.loads(cleaned)
-                except json.JSONDecodeError as e:
-                    logger.warning("AI JSON 解析失败: %s, content=%s", e, cleaned[:300])
-                    raise RuntimeError(f"LLM 返回格式错误（非有效 JSON）: {e}")
+                return self._parse_model_json(content, raw_fallback=True)
+
+    def _parse_model_json(self, content: str, raw_fallback: bool = False) -> dict:
+        """Parse LLM output defensively and keep OCR usable on malformed JSON."""
+        cleaned = (content or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+        candidates = [cleaned]
+        extracted = self._extract_balanced_json(cleaned)
+        if extracted and extracted != cleaned:
+            candidates.append(extracted)
+
+        last_error = None
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return self._normalize_parsed(parsed)
+            except json.JSONDecodeError as e:
+                last_error = e
+
+        logger.warning("AI JSON parse failed: %s, content=%s", last_error, cleaned[:500])
+        if raw_fallback:
+            return {
+                "polished": cleaned,
+                "diff": [],
+                "uncertain": [],
+                "_parse_warning": f"LLM returned non-JSON content: {last_error}",
+            }
+        raise RuntimeError(f"LLM returned invalid JSON: {last_error}")
+
+    def _extract_balanced_json(self, text: str) -> Optional[str]:
+        start = text.find("{")
+        if start < 0:
+            return None
+        depth = 0
+        in_string = False
+        escape = False
+        for i, ch in enumerate(text[start:], start=start):
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        return None
+
+    def _normalize_parsed(self, parsed: dict) -> dict:
+        polished = parsed.get("polished") or parsed.get("text") or parsed.get("content") or ""
+        diff = parsed.get("diff") if isinstance(parsed.get("diff"), list) else []
+        uncertain = parsed.get("uncertain") if isinstance(parsed.get("uncertain"), list) else []
+        return {
+            **parsed,
+            "polished": str(polished),
+            "diff": diff,
+            "uncertain": uncertain,
+        }
 
     def _candidate_schemes(self) -> list[dict]:
         if self.schemes:

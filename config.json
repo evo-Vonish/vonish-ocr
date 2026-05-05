@@ -38,6 +38,7 @@
   "active_ai_scheme_id": "80bd2ee8-6c9b-47f9-8d08-670706b8ee45",
   "output_mode": "smart",
   "include_diff": false,
+  "batch_ai_refine": false,
   "redact_sensitive": false,
   "power_mode": "balanced",
   "preload_model": true

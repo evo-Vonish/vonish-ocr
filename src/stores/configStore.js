@@ -31,6 +31,7 @@ export const useConfigStore = defineStore('config', () => {
     },
     output_mode: 'smart',
     include_diff: false,
+    batch_ai_refine: false,
     power_mode: 'balanced',
     preload_model: true,
     notify_enabled: true,
