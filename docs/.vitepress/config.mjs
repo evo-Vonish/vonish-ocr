@@ -2,6 +2,7 @@ import { defineConfig } from 'vitepress'
 import sidebar from './sidebar.mjs'
 
 export default defineConfig({
+  base: '/reference/',
   title: 'VonishOCR',
   titleTemplate: ':title | 掌灯取证',
   description: '本地优先的 OCR 软件，让模糊与旧迹，再次清晰可读',

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from api.routes import router
 from config.settings import ConfigManager
 
@@ -280,6 +281,11 @@ app.add_middleware(
 )
 app.include_router(router, prefix="/v1")
 app.include_router(router)
+
+# 挂载 VitePress 文档站，供前端 iframe 内嵌
+_docs_dist = Path(__file__).parent.parent / "docs" / ".vitepress" / "dist"
+if _docs_dist.exists():
+    app.mount("/reference", StaticFiles(directory=str(_docs_dist), html=True), name="reference_docs")
 
 
 @app.get("/")
