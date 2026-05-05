@@ -11,7 +11,7 @@ hero:
   actions:
     - theme: brand
       text: 快速开始
-      link: /quickstart/install
+      link: /quickstart/01-install
     - theme: alt
       text: GitHub
       link: https://github.com/evo-Vonish/vonish-ocr
@@ -21,17 +21,17 @@ features:
       src: /icons/local.svg
     title: 本地部署版
     details: 算力主权，文件不离开设备。Windows / macOS / Linux / Android，完全离线可用。
-    link: /product/morphology
+    link: /product/02-morphology
   - icon:
       src: /icons/cloud.svg
     title: 云端网页版
     details: 免安装，浏览器即开即用。云端 GPU 加速，处理速度提升 5-10 倍。
-    link: /product/morphology
+    link: /product/02-morphology
   - icon:
       src: /icons/api.svg
     title: 官方 API
     details: 7×24 在线，无限调用基础识别。RESTful 接口，一行代码接入。
-    link: /product/morphology
+    link: /product/02-morphology
 ---
 
 ## 核心能力
@@ -51,7 +51,7 @@ features:
 
 ## 快速链接
 
-- [安装与启动](/quickstart/install) —— 3 分钟完成首次识别
-- [功能手册](/features/scene-adaptive) —— 深入了解每项功能
-- [设计系统](/design/brand) —— 品牌精神、色彩、字体与布局
-- [开发文档](/development/architecture) —— 技术架构与贡献指南
+- [安装与启动](/quickstart/01-install) —— 3 分钟完成首次识别
+- [功能手册](/features/01-scene-adaptive) —— 深入了解每项功能
+- [设计系统](/design/01-brand) —— 品牌精神、色彩、字体与布局
+- [开发文档](/development/01-architecture) —— 技术架构与贡献指南
