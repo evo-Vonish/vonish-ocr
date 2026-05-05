@@ -77,6 +77,52 @@ async fn get_python_port(state: State<'_, AppState>) -> Result<u16, String> {
 }
 
 #[tauri::command]
+async fn backend_service_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    // 这个状态来自 Tauri 进程本身；即使 Python sidecar 已停止，也能正常返回。
+    let port = *state.python_port.read().await;
+    let pid = *state.python_pid.read().await;
+    Ok(serde_json::json!({
+        "status": if pid.is_some() && port > 0 { "running" } else { "stopped" },
+        "port": port,
+        "pid": pid,
+    }))
+}
+
+#[tauri::command]
+async fn control_backend_service(
+    state: State<'_, AppState>,
+    action: String,
+) -> Result<serde_json::Value, String> {
+    // 服务启停必须在 Tauri 层做，不能走 HTTP；停止后 HTTP 已经不可用了。
+    match action.as_str() {
+        "stop" => {
+            if let Some(pid) = *state.python_pid.read().await {
+                kill_python_process(pid);
+            }
+            let _ = state.python_child.write().await.take();
+            *state.python_pid.write().await = None;
+            *state.python_port.write().await = 0;
+            Ok(serde_json::json!({ "status": "stopped", "port": 0, "pid": null }))
+        }
+        "start" | "restart" => {
+            if let Some(pid) = *state.python_pid.read().await {
+                kill_python_process(pid);
+            }
+            let _ = state.python_child.write().await.take();
+            *state.python_pid.write().await = None;
+            *state.python_port.write().await = 0;
+
+            let (port, pid, child) = start_python_sidecar().await?;
+            *state.python_port.write().await = port;
+            *state.python_pid.write().await = Some(pid);
+            *state.python_child.write().await = Some(child);
+            Ok(serde_json::json!({ "status": "running", "port": port, "pid": pid }))
+        }
+        other => Err(format!("未知后端服务动作: {}", other)),
+    }
+}
+
+#[tauri::command]
 async fn get_batch_results(
     state: State<'_, AppState>,
     task_id: String,
@@ -352,9 +398,7 @@ fn main() {
             let show_i = MenuItemBuilder::new("显示主窗口")
                 .id("show")
                 .build(app)?;
-            let hide_i = MenuItemBuilder::new("隐藏到托盘")
-                .id("hide")
-                .build(app)?;
+
             let logs_i = MenuItemBuilder::new("打开后端日志")
                 .id("logs")
                 .build(app)?;
@@ -368,7 +412,7 @@ fn main() {
                 .id("quit")
                 .build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&show_i, &hide_i, &logs_i, &models_i, &docs_i, &quit_i])
+                .items(&[&show_i, &logs_i, &models_i, &docs_i, &quit_i])
                 .build()?;
 
             // 安全设置托盘图标（开发模式下 default_window_icon 可能为 None）
@@ -384,22 +428,29 @@ fn main() {
                                 let _ = window.set_focus();
                             }
                         }
-                        "hide" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.hide();
-                            }
-                        }
+
                         "logs" => {
                             let path = std::env::current_dir().unwrap_or_default().join("logs");
-                            let _ = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>);
+                            if let Err(e) = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>) {
+                                eprintln!("打开日志目录失败: {} (path: {:?})", e, path);
+                            }
                         }
                         "models" => {
                             let path = std::env::current_dir().unwrap_or_default().join("models");
-                            let _ = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>);
+                            if !path.exists() {
+                                let _ = std::fs::create_dir_all(&path);
+                            }
+                            if let Err(e) = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>) {
+                                eprintln!("打开模型目录失败: {} (path: {:?})", e, path);
+                            }
                         }
                         "docs" => {
                             let path = std::env::current_dir().unwrap_or_default().join("README.md");
-                            let _ = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>);
+                            if !path.exists() {
+                                eprintln!("README.md 不存在: {:?}", path);
+                            } else if let Err(e) = app.opener().open_path(path.to_string_lossy().as_ref(), None::<&str>) {
+                                eprintln!("打开 README.md 失败: {} (path: {:?})", e, path);
+                            }
                         }
                         "quit" => {
                             let state: State<'_, AppState> = app.state();
@@ -414,11 +465,14 @@ fn main() {
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                    if let tauri::tray::TrayIconEvent::Click { button, .. } = event {
+                        // 仅左键单击显示窗口；右键单击交给默认菜单行为
+                        if button == tauri::tray::MouseButton::Left {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
                         }
                     }
                 });
@@ -442,6 +496,8 @@ fn main() {
             open_backend_console,
             open_docs,
             get_python_port,
+            backend_service_status,
+            control_backend_service,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

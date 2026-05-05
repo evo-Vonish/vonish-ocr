@@ -1,0 +1,13 @@
+{
+  "name": "vonishocr-docs",
+  "version": "1.0.0",
+  "description": "VonishOCR 官方文档站 - 掌灯取证",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.5.0"
+  }
+}

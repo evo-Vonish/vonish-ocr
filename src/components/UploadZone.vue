@@ -57,48 +57,60 @@
 
     <div class="queue-actions">
       <label class="check-all">
-        <input type="checkbox" v-model="selectAll" @change="toggleSelectAll" />
-        <span>全选可识别项</span>
+        <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" />
+        <span>全选</span>
       </label>
-      <button class="text-btn" type="button" @click="clearCompleted">清除已完成与失败</button>
+      <div class="action-btns">
+        <button class="text-btn" type="button"
+                :disabled="!selectedCompletedItems.length || batchSave.isRunning"
+                @click="saveSelected">
+          保存选中
+        </button>
+        <button class="text-btn danger" type="button"
+                :disabled="!taskStore.selectedTasks.length"
+                @click="clearSelected">
+          清除选中
+        </button>
+      </div>
     </div>
 
     <div class="queue-command-row">
       <button class="start-btn" type="button" @click="startOCR" :disabled="!selectedFiles.length || taskStore.isProcessing">
         {{ taskStore.isProcessing ? '本地识别中' : `开始识别 ${selectedFiles.length}` }}
       </button>
-      <button class="save-all-btn" type="button" :disabled="!completedItems.length || batchSave.isRunning" @click="batchSave.open = !batchSave.open">
-        全部保存
-      </button>
-    </div>
-
-    <div v-if="batchSave.open" class="batch-save-popover">
-      <label>
-        格式
-        <select v-model="batchSave.format">
-          <option value="txt">TXT</option>
-          <option value="md">MD</option>
-          <option value="docx">DOCX</option>
-        </select>
-      </label>
-      <label>
-        内容
-        <select v-model="batchSave.mode">
-          <option value="raw">原文本</option>
-          <option value="polished">修复后</option>
-          <option value="compare">双结果对比</option>
-        </select>
-      </label>
-      <label>
-        输出
-        <select v-model="batchSave.output">
-          <option value="zip">ZIP 多文件</option>
-          <option value="merged">合并单文档</option>
-        </select>
-      </label>
-      <button class="start-btn compact" type="button" :disabled="batchSave.isRunning" @click="saveAllCompleted">
-        {{ batchSave.isRunning ? `正在打包 ${batchSave.done}/${batchSave.total} 张...` : '开始保存' }}
-      </button>
+      <div class="save-dropdown">
+        <button class="text-btn save-config-btn" type="button"
+                :class="{ active: saveDropdownOpen }"
+                @click="saveDropdownOpen = !saveDropdownOpen">
+          ⚙ {{ modeLabel(batchSave.mode) }}
+        </button>
+        <div v-if="saveDropdownOpen" class="save-dropdown-panel">
+          <div class="option-group">
+            <span class="option-label">格式</span>
+            <div class="option-tabs">
+              <button v-for="opt in formatOptions" :key="opt.value"
+                      :class="{ active: batchSave.format === opt.value }"
+                      @click="batchSave.format = opt.value">{{ opt.label }}</button>
+            </div>
+          </div>
+          <div class="option-group">
+            <span class="option-label">内容</span>
+            <div class="option-tabs">
+              <button v-for="opt in modeOptions" :key="opt.value"
+                      :class="{ active: batchSave.mode === opt.value }"
+                      @click="batchSave.mode = opt.value">{{ opt.label }}</button>
+            </div>
+          </div>
+          <div class="option-group">
+            <span class="option-label">输出</span>
+            <div class="option-tabs">
+              <button v-for="opt in outputOptions" :key="opt.value"
+                      :class="{ active: batchSave.output === opt.value }"
+                      @click="batchSave.output = opt.value">{{ opt.label }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-if="taskStore.tasks.length" class="upload-list">
@@ -139,7 +151,7 @@ import { ocrBatch, createBatchWebSocket, cancelBatch as apiCancelBatch, getBatch
 import { showToast } from '../composables/useToast'
 import { notifyBatchComplete, notifyBatchFailed } from '../composables/useNotify'
 import { useConfigStore } from '../stores/configStore'
-import { exportBatch } from '../utils/exporters'
+import { exportBatch, modeLabel } from '../utils/exporters'
 
 defineProps({
   variant: {
@@ -153,14 +165,22 @@ const configStore = useConfigStore()
 const fileInput = ref(null)
 const isDragging = ref(false)
 
-const selectAll = ref(false)
 const selectedFiles = computed(() => taskStore.tasks.filter(f => f.selected && f.base64 && !f.restored))
 const completedItems = computed(() => taskStore.tasks
   .map(task => ({ task, result: taskStore.getResult(task.id) }))
   .filter(item => item.result?.text))
+const selectedCompletedItems = computed(() => taskStore.tasks
+  .filter(t => t.selected)
+  .map(task => ({ task, result: taskStore.getResult(task.id) }))
+  .filter(item => item.result?.text))
+
+const isAllSelected = computed(() => {
+  const selectable = taskStore.tasks.filter(t => !t.restored && t.base64)
+  if (!selectable.length) return false
+  return selectable.every(t => t.selected)
+})
 
 const batchSave = reactive({
-  open: false,
   format: 'md',
   mode: 'polished',
   output: 'zip',
@@ -168,6 +188,22 @@ const batchSave = reactive({
   done: 0,
   total: 0,
 })
+const saveDropdownOpen = ref(false)
+
+const formatOptions = [
+  { value: 'txt', label: 'TXT' },
+  { value: 'md', label: 'MD' },
+  { value: 'docx', label: 'DOCX' },
+]
+const modeOptions = [
+  { value: 'raw', label: '原文' },
+  { value: 'polished', label: '修复' },
+  { value: 'compare', label: '对比' },
+]
+const outputOptions = [
+  { value: 'zip', label: 'ZIP' },
+  { value: 'merged', label: '合并' },
+]
 
 const batchProgress = reactive({
   taskId: null,
@@ -181,19 +217,27 @@ let ws = null
 
 onMounted(() => {
   window.addEventListener('keydown', handleBatchSaveShortcut)
+  document.addEventListener('mousedown', handleClickOutside)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleBatchSaveShortcut)
+  document.removeEventListener('mousedown', handleClickOutside)
 })
 
 function handleBatchSaveShortcut(event) {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 's') {
     event.preventDefault()
-    if (completedItems.value.length) {
-      batchSave.open = true
-      saveAllCompleted()
+    if (selectedCompletedItems.value.length) {
+      saveSelected()
     }
+  }
+}
+
+function handleClickOutside(event) {
+  const dropdown = document.querySelector('.save-dropdown')
+  if (dropdown && !dropdown.contains(event.target)) {
+    saveDropdownOpen.value = false
   }
 }
 
@@ -232,20 +276,20 @@ function addFiles(items) {
 }
 
 function toggleSelectAll() {
-  taskStore.setAllSelection(selectAll.value)
+  taskStore.setAllSelection(!isAllSelected.value)
 }
 
-function clearCompleted() {
-  taskStore.clearCompleted()
+function clearSelected() {
+  taskStore.clearSelected()
 }
 
-async function saveAllCompleted() {
-  if (!completedItems.value.length || batchSave.isRunning) return
+async function saveSelected() {
+  if (!selectedCompletedItems.value.length || batchSave.isRunning) return
   batchSave.isRunning = true
   batchSave.done = 0
-  batchSave.total = completedItems.value.length
+  batchSave.total = selectedCompletedItems.value.length
   try {
-    await exportBatch(completedItems.value, {
+    await exportBatch(selectedCompletedItems.value, {
       format: batchSave.format,
       mode: batchSave.mode,
       output: batchSave.output,
@@ -658,8 +702,87 @@ input[type="checkbox"] {
 
 .queue-command-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--s2);
+}
+
+.action-btns {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.save-dropdown {
+  position: relative;
+}
+
+.save-config-btn {
+  min-width: 80px;
+  white-space: nowrap;
+}
+
+.save-config-btn.active {
+  border-color: var(--v-accent);
+  color: var(--v-accent);
+}
+
+.save-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  padding: var(--s3);
+  background: var(--v-panel-raised);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.option-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.option-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--v-text-faint);
+  letter-spacing: 0.06em;
+}
+
+.option-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+
+.option-tabs button {
+  flex: 1 1 auto;
+  min-width: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
+  background: transparent;
+  color: var(--v-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--dur-base) var(--ease-cut);
+}
+
+.option-tabs button:hover {
+  border-color: var(--v-border-strong);
+  color: var(--v-text);
+}
+
+.option-tabs button.active {
+  background: var(--v-accent);
+  border-color: var(--v-accent);
+  color: var(--v-coal);
 }
 
 .start-btn,
@@ -694,31 +817,7 @@ input[type="checkbox"] {
   cursor: not-allowed;
 }
 
-.batch-save-popover {
-  display: grid;
-  gap: var(--s3);
-  margin-bottom: var(--s3);
-  padding: var(--s3);
-  background: var(--v-panel);
-  border: 1px solid var(--v-border);
-  border-radius: var(--r3);
-}
 
-.batch-save-popover label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s1);
-  color: var(--v-text-muted);
-  font-size: var(--fs-caption);
-}
-
-.batch-save-popover select {
-  min-height: 32px;
-  border: 1px solid var(--v-border);
-  border-radius: var(--r2);
-  background: var(--v-bg);
-  color: var(--v-text);
-}
 
 .upload-list {
   display: flex;

@@ -123,6 +123,20 @@ export const useTaskStore = defineStore('task', () => {
     persist()
   }
 
+  function clearSelected() {
+    const selectedIds = new Set(tasks.value.filter(t => t.selected).map(t => t.id))
+    if (!selectedIds.size) return
+    tasks.value = tasks.value.filter(t => !selectedIds.has(t.id))
+    for (const id of selectedIds) {
+      delete results.value[id]
+      delete errors.value[id]
+    }
+    if (currentTaskId.value && selectedIds.has(currentTaskId.value)) {
+      currentTaskId.value = tasks.value[0]?.id || null
+    }
+    persist()
+  }
+
   function setTaskStatus(taskId, status) {
     const task = tasks.value.find(t => t.id === taskId)
     if (task) task.status = status
@@ -223,6 +237,7 @@ export const useTaskStore = defineStore('task', () => {
     addFiles,
     removeTask,
     clearCompleted,
+    clearSelected,
     setTaskStatus,
     setTaskSelection,
     setAllSelection,

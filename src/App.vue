@@ -1,5 +1,6 @@
 <template>
-  <div class="v-app-shell">
+  <BackendConsole v-if="showBackendConsole" @close="showBackendConsole = false" />
+  <div v-else class="v-app-shell">
 
     <header class="v-topbar">
       <div class="brand-block">
@@ -19,7 +20,7 @@
           <span class="theme-icon" aria-hidden="true"></span>
           <span>{{ themeButtonLabel }}</span>
         </button>
-        <button class="icon-btn" type="button" title="打开后端日志目录" @click="openBackendConsole">
+        <button class="icon-btn" type="button" title="后端控制台" @click="showBackendConsole = true">
           <span class="console-icon" aria-hidden="true"></span>
           <span>后端控制台</span>
         </button>
@@ -106,18 +107,20 @@ import { useConfigStore } from './stores/configStore'
 import { useThemeStore } from './stores/themeStore'
 import UploadZone from './components/UploadZone.vue'
 import ResultPanel from './components/ResultPanel.vue'
+import BackendConsole from './components/BackendConsole.vue'
 import ConfigDrawer from './components/ConfigDrawer.vue'
 import AIProviderModal from './components/AIProviderModal.vue'
 import ToastStack from './components/ToastStack.vue'
 import DialogSystem from './components/DialogSystem.vue'
 
-import { openBackendConsole, openDocs } from './api/tauri_ipc'
+import { openDocs } from './api/tauri_ipc'
 
 const taskStore = useTaskStore()
 const configStore = useConfigStore()
 const themeStore = useThemeStore()
 const showConfig = ref(false)
 const showAIProviderCenter = ref(false)
+const showBackendConsole = ref(false)
 
 const themeButtonLabel = computed(() => {
   const theme = themeStore.resolvedTheme

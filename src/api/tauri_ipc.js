@@ -65,6 +65,16 @@ async function _jsonOrThrow(res) {
   return data
 }
 
+async function _backendUrl(path) {
+  const port = await getPythonPort()
+  return `http://127.0.0.1:${port}${path}`
+}
+
+async function _backendJson(path, options = {}) {
+  const res = await fetch(await _backendUrl(path), options)
+  return _jsonOrThrow(res)
+}
+
 /**
  * Tauri IPC 封装层
  * 统一封装所有后端调用，在 Tauri 环境下走 invoke，浏览器开发模式 fallback 到 HTTP
@@ -78,76 +88,49 @@ const isTauri = () => {
 export async function getPythonPort() {
   if (isTauri()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    return invoke('get_python_port')
+    for (let i = 0; i < 30; i++) {
+      const port = Number(await invoke('get_python_port').catch(() => 0))
+      if (port > 0) return port
+      await new Promise(resolve => setTimeout(resolve, 150))
+    }
+    throw new Error('Python sidecar 尚未就绪，请稍后重试')
   }
   return 8000
 }
 
 // OCR 单图识别
 export async function ocrRecognize(imageBase64, options = {}) {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('ocr_recognize', {
-      imageBase64,
-      options: JSON.stringify(options),
-    })
-    return _parseJson(text)
-  }
-  const res = await fetch('http://localhost:8000/v1/ocr', {
+  return _backendJson('/v1/ocr', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ image: imageBase64, options }),
   })
-  return _jsonOrThrow(res)
 }
 
 // 批量 OCR 提交
 export async function ocrBatch(images, options = {}) {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('ocr_batch', {
-      images,
-      options: JSON.stringify(options),
-    })
-    return _parseJson(text)
-  }
-  const res = await fetch('http://localhost:8000/v1/ocr/batch/json', {
+  return _backendJson('/v1/ocr/batch/json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ images, options }),
   })
-  return _jsonOrThrow(res)
 }
 
 // 获取批量任务结果
 export async function getBatchResults(taskId) {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('get_batch_results', { taskId })
-    return _parseJson(text)
-  }
-  const res = await fetch(`http://localhost:8000/v1/ocr/batch/${taskId}/results`)
-  return _jsonOrThrow(res)
+  return _backendJson(`/v1/ocr/batch/${taskId}/results`)
 }
 
 // 获取批量任务状态
 export async function getBatchStatus(taskId) {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('get_batch_status', { taskId })
-    return _parseJson(text)
-  }
-  const res = await fetch(`http://localhost:8000/v1/ocr/batch/${taskId}`)
-  return _jsonOrThrow(res)
+  return _backendJson(`/v1/ocr/batch/${taskId}`)
 }
 
 // 取消批量任务
 export async function cancelBatch(taskId) {
-  const port = await getPythonPort()
-  const res = await fetch(`http://127.0.0.1:${port}/v1/ocr/batch/${taskId}/cancel`, {
+  return _backendJson(`/v1/ocr/batch/${taskId}/cancel`, {
     method: 'POST',
   })
-  return _jsonOrThrow(res)
 }
 
 // 创建 WebSocket 连接监听批量任务进度（带断线重连）
@@ -200,80 +183,50 @@ export async function createBatchWebSocket(taskId, onMessage) {
 
 // 获取可用模型列表
 export async function getAvailableModels() {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('get_available_models')
-    return _parseJson(text)
-  }
-  const res = await fetch('http://localhost:8000/v1/models')
-  return _jsonOrThrow(res)
+  return _backendJson('/v1/models')
 }
 
 // 拉取模型
 export async function pullModel(modelId) {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('pull_model', { modelId })
-    return _parseJson(text)
-  }
-  const res = await fetch(`http://localhost:8000/v1/models/${modelId}/pull`, {
+  return _backendJson(`/v1/models/${modelId}/pull`, {
     method: 'POST',
   })
-  return _jsonOrThrow(res)
 }
 
 // 获取配置
 export async function getConfig() {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('get_config')
-    return _parseJson(text)
-  }
-  const res = await fetch('http://localhost:8000/v1/config')
-  return _jsonOrThrow(res)
+  return _backendJson('/v1/config')
 }
 
 // 保存配置
 export async function saveConfig(config) {
-  if (isTauri()) {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const text = await invoke('save_config', { config: JSON.stringify(config) })
-    return _parseJson(text)
-  }
-  const res = await fetch('http://localhost:8000/v1/config', {
+  return _backendJson('/v1/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
   })
-  return _jsonOrThrow(res)
 }
 
 // AI 方案列表。Key 由后端加密存储，这里只拿 key_saved 状态。
 export async function getAISchemes() {
-  const port = await getPythonPort()
-  const res = await fetch(`http://127.0.0.1:${port}/v1/ai/schemes`)
-  return _jsonOrThrow(res)
+  return _backendJson('/v1/ai/schemes')
 }
 
 // 新增或更新 AI 方案；api_key 只在本次请求内传输，不写入 localStorage。
 export async function saveAIScheme(scheme) {
-  const port = await getPythonPort()
-  const res = await fetch(`http://127.0.0.1:${port}/v1/ai/schemes`, {
+  return _backendJson('/v1/ai/schemes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(scheme),
   })
-  return _jsonOrThrow(res)
 }
 
 export async function setActiveAIScheme(schemeId) {
-  const port = await getPythonPort()
-  const res = await fetch(`http://127.0.0.1:${port}/v1/ai/schemes/active`, {
+  return _backendJson('/v1/ai/schemes/active', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scheme_id: schemeId }),
   })
-  return _jsonOrThrow(res)
 }
 
 export async function streamAIRefine(payload, { signal, onEvent } = {}) {
@@ -306,6 +259,48 @@ export async function streamAIRefine(payload, { signal, onEvent } = {}) {
       onEvent?.(event)
     }
   }
+}
+
+export async function getBackendConsoleStatus() {
+  return _backendJson('/v1/console/status')
+}
+
+export async function testBackendRequest() {
+  return _backendJson('/health')
+}
+
+// 控制台模型切换：走后端真实卸载 / 加载接口，并返回步骤结果。
+export async function switchConsoleModel(modelId) {
+  return _backendJson('/v1/console/model/switch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_id: modelId }),
+  })
+}
+
+// 控制台缓存清理：只释放模型驻留，不删除本地模型文件。
+export async function clearConsoleCache() {
+  return _backendJson('/v1/console/cache/clear', {
+    method: 'POST',
+  })
+}
+
+// 查询 Tauri 管理的 sidecar 状态。停止服务后 HTTP 不可用，所以必须走原生命令。
+export async function getBackendServiceState() {
+  if (!isTauri()) {
+    return { status: 'running', port: 8000, pid: null }
+  }
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke('backend_service_status')
+}
+
+// 控制 Python sidecar 启停 / 重启。这里不能走 HTTP，否则停止后就无法再启动。
+export async function controlBackendService(action) {
+  if (!isTauri()) {
+    return { status: action === 'stop' ? 'stopped' : 'running', port: 8000, pid: null }
+  }
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke('control_backend_service', { action })
 }
 
 // 打开模型目录

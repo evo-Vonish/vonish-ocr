@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/free-vite-port.js 1420 && vite",
+    "dev": "node scripts/free-vite-port.js 1420 && vite --host 127.0.0.1 --port 1420",
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
