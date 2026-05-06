@@ -36,11 +36,20 @@
 /* ============================================================
    首页 Hero
    ============================================================ */
-.VPHero .name,
-.VPHero .text {
-  color: #E7E1D0; /* 纸骨 */
+.VPHero .name {
+  color: #E7E1D0 !important;
+  background: none !important;
+  -webkit-text-fill-color: #E7E1D0 !important;
   font-family: "Noto Serif SC", serif;
   font-weight: 700;
+}
+
+.VPHero .text {
+  color: #A39B8F !important;
+  background: none !important;
+  -webkit-text-fill-color: #A39B8F !important;
+  font-family: "Noto Serif SC", serif;
+  font-weight: 600;
 }
 
 .VPHero .tagline {
