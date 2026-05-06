@@ -50,56 +50,36 @@
     </div>
 
     <div v-else class="result-body">
-      <div v-if="activeTab === 'raw'" class="result-grid">
-        <article class="result-col paper-col">
+      <div v-if="activeTab === 'raw'" class="single-result paper-col">
+        <div class="tab-title-row">
           <div class="result-label">RAW OCR</div>
-          <pre class="ocr-text">{{ displayResult.text || '暂无识别结果' }}</pre>
-        </article>
-        <article class="result-col">
-          <div class="result-label">PREPROCESS</div>
-          <button v-if="preprocessInfo?.scene" type="button" class="preprocess-bar" @click="showPreprocessDetail = !showPreprocessDetail">
-            <span>{{ formatPreprocessSummary(preprocessInfo) }}</span>
-            <span>{{ showPreprocessDetail ? 'LESS' : 'MORE' }}</span>
-          </button>
-          <div v-if="showPreprocessDetail && preprocessInfo?.steps?.length" class="preprocess-detail">
-            <div v-for="(step, i) in preprocessInfo.steps" :key="i" class="preprocess-step">
-              {{ String(i + 1).padStart(2, '0') }} · {{ step }}
-            </div>
-          </div>
-          <div class="confidence-row">
-            <span>CONFIDENCE</span>
-            <span :class="{ 'v-low-confidence': displayResult.confidence > 0 && displayResult.confidence < 0.85 }">
-              {{ formatConfidence(displayResult.confidence) }}
-            </span>
-          </div>
-        </article>
-        <article class="result-col">
-          <div class="result-label">AUDIT NOTES</div>
-          <div v-if="displayResult.uncertain.length" class="uncertain-box">
-            存在 {{ displayResult.uncertain.length }} 处不确定内容，建议人工复核。
-          </div>
-          <div v-else class="quiet-note">未收到不确定标记。</div>
-          <div v-if="displayResult.failoverNotice" class="failover-note">{{ displayResult.failoverNotice }}</div>
-        </article>
+          <span class="result-chip">{{ formatConfidence(displayResult.confidence) }}</span>
+        </div>
+        <pre class="ocr-text evidence-text">{{ displayResult.text || '暂无识别结果' }}</pre>
       </div>
 
       <div v-if="activeTab === 'polished'" class="single-result">
         <div class="stream-head">
-          <div class="result-label">AI POLISHED · {{ formatConfidence(displayResult.aiConfidence) }}</div>
+          <div>
+            <div class="result-label">AI POLISHED</div>
+            <div v-if="displayResult.aiError" class="quiet-note is-error">自动修复出错：{{ displayResult.aiError.message }}</div>
+          </div>
           <div class="stream-actions">
             <span v-if="streamStatus === 'streaming'" class="stream-pulse">AI 正在复核...</span>
             <button v-if="streamStatus === 'streaming'" class="text-btn" type="button" @click="stopRefine">停止</button>
             <button v-else class="text-btn" type="button" :disabled="!displayResult.text" @click="startRefine">重新精修</button>
           </div>
         </div>
-        <pre class="ocr-text">{{ streamedText || displayResult.polished || '暂无精修结果' }}</pre>
+        <pre class="ocr-text evidence-text">{{ streamedText || displayResult.polished || '暂无精修结果' }}</pre>
         <div v-if="streamStatus === 'error'" class="quiet-note is-error">AI 修复失败：{{ aiStream.error.value?.message || '未知错误' }}</div>
-        <div v-if="displayResult.aiError" class="quiet-note is-error">自动修复出错：{{ displayResult.aiError.message }}</div>
         <div v-if="streamStatus === 'interrupted'" class="quiet-note">精修已中断，已保留当前输出。</div>
       </div>
 
       <div v-if="activeTab === 'diff'" class="single-result">
-        <div class="result-label">DIFF RECORD</div>
+        <div class="tab-title-row">
+          <div class="result-label">DIFF RECORD</div>
+          <span class="result-chip">{{ displayResult.diff.length }}</span>
+        </div>
         <div v-if="!displayResult.diff.length" class="quiet-note">无修改记录。</div>
         <div v-else class="diff-list">
           <div v-for="(d, i) in displayResult.diff" :key="i" class="diff-line">
@@ -192,11 +172,16 @@ const displayError = computed(() => taskStore.currentTask ? taskStore.getError(t
 const preprocessInfo = computed(() => {
   const result = rawResult.value
   if (!result) return null
+  const prep = result.preprocess || {}
+  const storeJob = taskStore.currentTask ? taskStore.getPreprocessJob(taskStore.currentTask.id) : null
   return {
-    scene: result.scene || '',
-    steps: result.preprocess_steps || [],
-    timeMs: result.preprocess_time_ms || 0,
-    usedOriginal: result.preprocess_used_original || false,
+    scene: prep.frontend_scene || prep.scene || result.scene || '',
+    steps: prep.steps || result.preprocess_steps || [],
+    timeMs: prep.time_ms || result.preprocess_time_ms || 0,
+    usedOriginal: prep.used_original || result.preprocess_used_original || false,
+    confidence: prep.scene_confidence || 0,
+    quality: prep.quality_score || 0,
+    processedUrl: storeJob?.processed_full_url || prep.processed_full_url || '',
   }
 })
 
@@ -359,32 +344,40 @@ function formatConfidence(val) {
   flex-wrap: wrap;
 }
 
-.state-tab,
-.export-tab,
-.text-btn,
-.export-btn {
-  min-height: 36px;
-  padding-inline: var(--s3);
-  background: transparent;
+.state-tabs {
+  padding: 3px;
+  background: var(--v-bg);
   border: 1px solid var(--v-border);
   border-radius: var(--r3);
+}
+
+.state-tab {
+  min-width: 64px;
+  height: 34px;
+  position: relative;
+  border: 0;
+  border-radius: var(--r2);
+  background: transparent;
   color: var(--v-text-muted);
   font-family: var(--font-mono);
   font-size: var(--fs-caption);
   cursor: pointer;
-  transition: border-color var(--dur-base) var(--ease-cut), color var(--dur-base) var(--ease-cut), box-shadow var(--dur-base) var(--ease-cut);
 }
 
-.state-tab.active,
-.export-tab.active {
-  border-color: var(--v-accent);
+.state-tab.active {
   color: var(--v-text);
-  box-shadow: var(--glow-soft);
+  background: var(--v-panel);
 }
 
-button:disabled {
-  opacity: 0.42;
-  cursor: not-allowed;
+.state-tab.active::after {
+  content: "";
+  position: absolute;
+  left: var(--s2);
+  right: var(--s2);
+  bottom: 4px;
+  height: 1px;
+  background: var(--v-accent);
+  box-shadow: var(--glow-soft);
 }
 
 .result-body {
@@ -394,7 +387,7 @@ button:disabled {
 
 .result-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: var(--s4);
 }
 
@@ -412,6 +405,26 @@ button:disabled {
   background: color-mix(in srgb, var(--v-panel) 82%, var(--v-paper) 18%);
 }
 
+.tab-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.result-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding-inline: var(--s2);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
+  color: var(--v-accent);
+  background: var(--v-bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+
 .ocr-text,
 .error-json {
   margin: var(--s3) 0 0;
@@ -421,6 +434,14 @@ button:disabled {
   font-size: var(--fs-body);
   line-height: 1.85;
   color: var(--v-text);
+}
+
+.evidence-text {
+  min-height: 520px;
+  padding: var(--s5);
+  background: var(--v-bg);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
 }
 
 .preprocess-bar,
@@ -439,6 +460,17 @@ button:disabled {
   border-radius: var(--r3);
   font-family: var(--font-mono);
   font-size: var(--fs-caption);
+}
+
+.preprocess-thumb {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  margin-top: var(--s2);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  background: var(--v-bg);
 }
 
 .preprocess-step,
@@ -543,6 +575,7 @@ button:disabled {
 
 .export-panel {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: var(--s3);
@@ -554,12 +587,7 @@ button:disabled {
   opacity: 0.58;
 }
 
-.export-btn {
-  background: var(--v-accent);
-  color: var(--v-coal);
-  border-color: var(--v-accent);
-  font-weight: var(--fw-semibold);
-}
+/* .export-btn 样式由 global-buttons.css 统一覆盖 */
 
 @media (max-width: 900px) {
   .result-head,
@@ -572,5 +600,19 @@ button:disabled {
   .result-grid {
     grid-template-columns: 1fr;
   }
+
+  .export-tabs,
+  .export-actions {
+    flex-wrap: wrap;
+    gap: var(--s1);
+  }
+}
+
+@media (max-width: 500px) {
+  .state-tabs { flex-wrap: wrap; gap: var(--s1); }
+  .state-tab { padding-inline: var(--s2); min-height: 32px; font-size: 11px; }
+  .ocr-text { font-size: var(--font-small); }
+  .result-col,
+  .single-result { padding: var(--s3); }
 }
 </style>

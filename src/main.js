@@ -1,7 +1,12 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import './styles/theme-system.css'
 import './styles/global.css'
+import './styles/fluid-tokens.css'
+import './styles/container-queries.css'
+import './styles/global-buttons.css'
+import './styles/interaction-details.css'
 import { showToast } from './composables/useToast'
 
 const app = createApp(App)

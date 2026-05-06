@@ -1,9 +1,8 @@
 <template>
   <BackendConsole v-if="showBackendConsole" @close="showBackendConsole = false" />
   <DocsViewer v-else-if="showDocs" @close="showDocs = false" />
-  <div v-else class="v-app-shell">
-
-    <header class="v-topbar">
+  <ResponsiveShell v-else>
+    <template #topbar>
       <div class="brand-block">
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
@@ -34,18 +33,18 @@
           <span>配置</span>
         </button>
       </div>
-    </header>
+    </template>
 
-    <aside class="v-left-rail">
-      <UploadZone variant="queue" />
-    </aside>
+    <template #left-rail>
+      <EvidenceQueue />
+    </template>
 
-    <main class="v-workbench">
+    <template #workbench>
       <UploadZone v-if="!hasResult && !hasError" variant="dropzone" />
       <ResultPanel v-else />
-    </main>
+    </template>
 
-    <aside class="v-review-lamp">
+    <template #right-review>
       <div class="v-review-head">
         <div>
           <div class="v-review-status">{{ reviewStatus }}</div>
@@ -53,13 +52,21 @@
         </div>
         <span class="lamp-dot" :class="{ on: hasResult || hasError }"></span>
       </div>
-
       <div class="v-review-section">
         <div class="section-label">CURRENT CASE</div>
         <div class="case-name">{{ taskStore.currentTask?.name || '等待证据文件' }}</div>
         <div class="case-meta v-mono">{{ currentTaskMeta }}</div>
       </div>
-
+      <div v-if="preprocessReview" class="v-review-section">
+        <div class="section-label">PREPROCESS</div>
+        <div v-if="preprocessReview.url || preprocessReview.originalUrl" class="review-prep-strip">
+          <img v-if="preprocessReview.originalUrl" :src="preprocessReview.originalUrl" alt="" />
+          <img v-if="preprocessReview.url" :src="preprocessReview.url" alt="" />
+        </div>
+        <div class="case-name">{{ preprocessReview.scene }} · {{ preprocessReview.confidence }}</div>
+        <div class="case-meta v-mono">{{ preprocessReview.elapsed }} · {{ preprocessReview.strategy }}</div>
+        <button v-if="preprocessReview.url" class="text-link" type="button" @click="showPreprocessModal = true">查看对比图</button>
+      </div>
       <div class="v-confidence-panel">
         <div class="v-confidence-row">
           <span>OCR CONF</span>
@@ -74,31 +81,54 @@
           <span>{{ diffCount }}</span>
         </div>
       </div>
-
       <div v-if="hasError" class="v-review-section error-block">
         <div class="section-label">ERROR</div>
         <div class="error-text">{{ currentError.message }}</div>
       </div>
-
       <div class="v-review-section">
         <div class="section-label">LOCAL API</div>
         <div class="v-api-url">127.0.0.1 : sidecar</div>
         <div class="v-api-desc">本地推理优先，AI 修复可选。</div>
       </div>
-    </aside>
+    </template>
 
-    <footer class="v-bottombar">
+    <template #bottombar>
       <span class="v-readout-accent">LOCAL HELD</span>
       <span class="v-readout-strong">MODEL {{ modelLabel }}</span>
       <span class="v-readout">QUEUE {{ queueText }}</span>
       <span class="v-readout">{{ reviewStatus }}</span>
-    </footer>
+    </template>
 
-    <ConfigDrawer v-model:visible="showConfig" @open-ai-center="showAIProviderCenter = true" />
-    <AIProviderModal v-model:visible="showAIProviderCenter" />
-    <ToastStack />
-    <DialogSystem />
+    <template #top-toolbar>
+      <div class="mobile-toolbar">
+        <div class="toolbar-scroll">
+          <div v-if="taskStore.tasks.length" class="toolbar-section">
+            <span class="toolbar-label">队列</span>
+            <div class="toolbar-chips">
+              <div v-for="t in taskStore.tasks.slice(0, 10)" :key="t.id" class="toolbar-chip" :class="{ active: t.id === taskStore.currentTask?.id }" @click="taskStore.currentTaskId = t.id">
+                {{ t.name?.slice(0, 8) || t.id }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+  </ResponsiveShell>
+
+  <ConfigDrawer v-model:visible="showConfig" @open-ai-center="showAIProviderCenter = true" />
+  <div v-if="showPreprocessModal && preprocessReview" class="modal-backdrop" @click="showPreprocessModal = false">
+    <div class="preprocess-modal" @click.stop>
+      <button class="modal-close" type="button" @click="showPreprocessModal = false">×</button>
+      <div class="section-label">PREPROCESS COMPARE</div>
+      <div class="modal-images">
+        <img v-if="preprocessReview.originalUrl" :src="preprocessReview.originalUrl" alt="" />
+        <img v-if="preprocessReview.url" :src="preprocessReview.url" alt="" />
+      </div>
+    </div>
   </div>
+  <AIProviderModal v-model:visible="showAIProviderCenter" />
+  <ToastStack />
+  <DialogSystem />
 </template>
 
 <script setup>
@@ -107,6 +137,7 @@ import { useTaskStore } from './stores/taskStore'
 import { useConfigStore } from './stores/configStore'
 import { useThemeStore } from './stores/themeStore'
 import UploadZone from './components/UploadZone.vue'
+import EvidenceQueue from './components/EvidenceQueue.vue'
 import ResultPanel from './components/ResultPanel.vue'
 import BackendConsole from './components/BackendConsole.vue'
 import DocsViewer from './components/DocsViewer.vue'
@@ -114,6 +145,7 @@ import ConfigDrawer from './components/ConfigDrawer.vue'
 import AIProviderModal from './components/AIProviderModal.vue'
 import ToastStack from './components/ToastStack.vue'
 import DialogSystem from './components/DialogSystem.vue'
+import ResponsiveShell from './layouts/ResponsiveShell.vue'
 
 const taskStore = useTaskStore()
 const configStore = useConfigStore()
@@ -122,10 +154,10 @@ const showConfig = ref(false)
 const showAIProviderCenter = ref(false)
 const showBackendConsole = ref(false)
 const showDocs = ref(false)
+const showPreprocessModal = ref(false)
 
 const themeButtonLabel = computed(() => {
-  const theme = themeStore.resolvedTheme
-  return theme === 'light' ? '白' : '黑'
+  return themeStore.resolvedMode === 'light' ? '白' : '黑'
 })
 
 const currentResult = computed(() => {
@@ -140,6 +172,23 @@ const currentError = computed(() => {
 
 const hasResult = computed(() => !!currentResult.value)
 const hasError = computed(() => !!currentError.value)
+
+const preprocessReview = computed(() => {
+  const task = taskStore.currentTask
+  const result = currentResult.value
+  const resultPrep = result?.preprocess || null
+  const storePrep = task ? taskStore.getPreprocessJob(task.id) : null
+  const prep = resultPrep || storePrep
+  if (!prep && !result?.preprocess_steps?.length) return null
+  return {
+    scene: prep?.frontend_scene || prep?.scene || result?.scene || '--',
+    confidence: prep?.scene_confidence ? `${Math.round(prep.scene_confidence * 100)}%` : '--',
+    elapsed: `${prep?.elapsed_ms || prep?.time_ms || result?.preprocess_time_ms || 0}ms`,
+    strategy: prep?.strategy || 'history',
+    url: storePrep?.processed_full_url || prep?.processed_full_url || '',
+    originalUrl: storePrep?.original_full_url || prep?.original_full_url || '',
+  }
+})
 
 const modelLabel = computed(() => {
   const id = configStore.config.ocr_model || 'rapidocr-mobile-cn'
@@ -184,7 +233,7 @@ const sceneText = computed(() => currentResult.value?.scene || '--')
 const diffCount = computed(() => currentResult.value?.ai?.diff?.length || 0)
 
 function cycleTheme() {
-  themeStore.setTheme(themeStore.resolvedTheme === 'light' ? 'dark' : 'light')
+  themeStore.setThemeMode(themeStore.resolvedMode === 'light' ? 'dark' : 'light')
 }
 
 onMounted(() => {
@@ -202,47 +251,17 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.v-app-shell {
-  display: grid;
-  grid-template-rows: var(--topbar-h) minmax(0, 1fr) var(--bottombar-h);
-  grid-template-columns: var(--left-rail-w) minmax(0, 1fr) var(--right-review-w);
-  gap: var(--layout-gap);
-  padding: var(--layout-pad);
-  height: 100vh;
-  background: var(--v-bg);
-  overflow: hidden;
-}
-
-.v-topbar,
-.v-bottombar,
-.v-left-rail,
-.v-workbench,
-.v-review-lamp {
-  border: 1px solid var(--v-border);
-  border-radius: var(--r4);
-}
-
-.v-topbar {
-  grid-column: 1 / -1;
-  height: var(--topbar-h);
-  background: var(--v-rail);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-inline: var(--s4);
-  min-width: 0;
-}
-
 .brand-block {
   display: flex;
   align-items: center;
   gap: var(--s3);
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .brand-mark {
-  width: 18px;
-  height: 18px;
+  width: clamp(14px, 1.2vw, 18px);
+  height: clamp(14px, 1.2vw, 18px);
   border: 1px solid var(--v-accent);
   border-radius: var(--r2);
   position: relative;
@@ -258,7 +277,7 @@ onMounted(() => {
 }
 
 .brand-title {
-  font-size: var(--fs-h2);
+  font-size: var(--font-h2);
   line-height: 1;
 }
 
@@ -269,28 +288,39 @@ onMounted(() => {
 .top-readouts {
   display: flex;
   align-items: center;
-  gap: var(--s5);
+  gap: clamp(8px, 2vw, var(--s5));
   min-width: 0;
+  transition: opacity 0.15s ease, gap 0.2s ease;
 }
 
 .top-actions {
   display: flex;
   align-items: center;
-  gap: var(--s2);
+  gap: clamp(3px, 0.8vw, var(--s2));
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  transition: gap 0.2s ease;
 }
 
 .icon-btn {
   height: 32px;
   display: inline-flex;
   align-items: center;
-  gap: var(--s2);
+  gap: clamp(4px, 0.8vw, var(--s2));
   padding-inline: var(--s3);
   background: transparent;
   color: var(--v-text-muted);
   border: 1px solid var(--v-border);
   border-radius: var(--r3);
   cursor: pointer;
+  font-family: var(--font-body);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: padding-inline 0.2s ease, height 0.2s ease, gap 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.icon-btn span:last-child {
+  transition: opacity 0.15s ease, max-width 0.15s ease;
 }
 
 .icon-btn:hover {
@@ -300,8 +330,7 @@ onMounted(() => {
 }
 
 .gear-icon {
-  width: 13px;
-  height: 13px;
+  width: 13px; height: 13px;
   border: 1px solid currentColor;
   border-radius: 50%;
   position: relative;
@@ -316,8 +345,7 @@ onMounted(() => {
 }
 
 .theme-icon {
-  width: 14px;
-  height: 14px;
+  width: 14px; height: 14px;
   border: 1px solid currentColor;
   border-radius: 50%;
   position: relative;
@@ -332,8 +360,7 @@ onMounted(() => {
 }
 
 .console-icon {
-  width: 15px;
-  height: 12px;
+  width: 15px; height: 12px;
   border: 1px solid currentColor;
   border-radius: var(--r1);
   position: relative;
@@ -342,10 +369,8 @@ onMounted(() => {
 .console-icon::before {
   content: "";
   position: absolute;
-  left: 3px;
-  top: 3px;
-  width: 4px;
-  height: 4px;
+  left: 3px; top: 3px;
+  width: 4px; height: 4px;
   border-right: 1px solid currentColor;
   border-bottom: 1px solid currentColor;
   transform: rotate(-45deg);
@@ -354,16 +379,13 @@ onMounted(() => {
 .console-icon::after {
   content: "";
   position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 4px;
-  height: 1px;
+  right: 3px; bottom: 3px;
+  width: 4px; height: 1px;
   background: currentColor;
 }
 
 .docs-icon {
-  width: 13px;
-  height: 15px;
+  width: 13px; height: 15px;
   border: 1px solid currentColor;
   border-radius: var(--r1);
   position: relative;
@@ -373,61 +395,15 @@ onMounted(() => {
 .docs-icon::after {
   content: "";
   position: absolute;
-  left: 3px;
-  right: 3px;
+  left: 3px; right: 3px;
   height: 1px;
   background: currentColor;
 }
 
-.docs-icon::before {
-  top: 5px;
-}
+.docs-icon::before { top: 5px; }
+.docs-icon::after { top: 9px; }
 
-.docs-icon::after {
-  top: 9px;
-}
-
-.v-left-rail {
-  grid-row: 2;
-  grid-column: 1;
-  min-width: 0;
-  overflow: auto;
-  background: var(--v-rail);
-  padding: var(--s4);
-}
-
-.v-workbench {
-  grid-row: 2;
-  grid-column: 2;
-  min-width: 0;
-  overflow: auto;
-  background: var(--v-panel);
-  padding: var(--s5);
-}
-
-.v-review-lamp {
-  grid-row: 2;
-  grid-column: 3;
-  min-width: 0;
-  overflow: auto;
-  background: var(--v-rail);
-  padding: var(--s4);
-}
-
-.v-bottombar {
-  grid-column: 1 / -1;
-  height: var(--bottombar-h);
-  background: var(--v-rail);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s4);
-  padding-inline: var(--s4);
-  font-family: var(--font-mono);
-  font-size: var(--fs-caption);
-  min-width: 0;
-}
-
+/* ── 复核灯内容 ── */
 .v-review-head {
   display: flex;
   align-items: center;
@@ -438,19 +414,19 @@ onMounted(() => {
 .v-review-status,
 .section-label {
   font-family: var(--font-mono);
-  font-size: var(--fs-micro);
+  font-size: var(--font-micro);
   color: var(--v-text-muted);
   letter-spacing: 0.08em;
 }
 
 .review-title {
   margin-top: var(--s1);
-  font-size: var(--fs-h2);
+  font-size: var(--font-h2);
 }
 
 .lamp-dot {
-  width: 10px;
-  height: 10px;
+  width: clamp(8px, 0.8vw, 10px);
+  height: clamp(8px, 0.8vw, 10px);
   border: 1px solid var(--v-border-strong);
   border-radius: 50%;
 }
@@ -474,17 +450,90 @@ onMounted(() => {
   margin-top: var(--s3);
 }
 
+.text-link {
+  margin-top: var(--s2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.review-prep-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+
+.review-prep-strip img {
+  width: 100%;
+  height: 84px;
+  object-fit: contain;
+  background: var(--v-bg);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.preprocess-modal {
+  width: min(1100px, calc(100vw - 64px));
+  max-height: calc(100vh - 64px);
+  position: relative;
+  padding: var(--s5);
+  background: var(--v-rail);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r4);
+}
+
+.modal-close {
+  position: absolute;
+  top: var(--s3);
+  right: var(--s3);
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
+  background: transparent;
+  color: var(--v-text);
+  cursor: pointer;
+}
+
+.modal-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s4);
+  margin-top: var(--s4);
+}
+
+.modal-images img {
+  width: 100%;
+  max-height: calc(100vh - 180px);
+  object-fit: contain;
+  background: var(--v-bg);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+}
+
 .case-name {
   margin-top: var(--s2);
   color: var(--v-text);
-  font-size: var(--fs-small);
+  font-size: var(--font-small);
   line-height: 1.45;
   word-break: break-word;
 }
 
-.case-meta {
-  margin-top: var(--s2);
-}
+.case-meta { margin-top: var(--s2); }
 
 .v-confidence-panel {
   padding: var(--s4);
@@ -499,22 +548,16 @@ onMounted(() => {
   justify-content: space-between;
   gap: var(--s3);
   font-family: var(--font-mono);
-  font-size: var(--fs-caption);
+  font-size: var(--font-caption);
   color: var(--v-text-muted);
 }
 
-.v-confidence-row + .v-confidence-row {
-  margin-top: var(--s3);
-}
+.v-confidence-row + .v-confidence-row { margin-top: var(--s3); }
 
-.v-confidence-value {
-  color: var(--v-accent);
-}
+.v-confidence-value { color: var(--v-accent); }
 
 .v-confidence-error,
-.error-text {
-  color: var(--v-error);
-}
+.error-text { color: var(--v-error); }
 
 .v-api-url {
   margin-top: var(--s2);
@@ -525,71 +568,73 @@ onMounted(() => {
 
 .v-api-desc {
   margin-top: var(--s1);
-  font-size: var(--fs-micro);
+  font-size: var(--font-micro);
   color: var(--v-text-muted);
 }
 
-@media (max-width: 1023px) and (min-width: 768px) {
-  .top-readouts {
-    gap: var(--s3);
-  }
+/* ── 移动端顶部工具栏 ── */
+.mobile-toolbar {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--v-rail);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+}
 
-  .icon-btn span:last-child {
-    display: none;
-  }
+.toolbar-scroll {
+  overflow-x: auto;
+  display: flex;
+  gap: var(--space-md);
+}
+
+.toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.toolbar-label {
+  font-family: var(--font-mono);
+  font-size: var(--font-micro);
+  color: var(--v-text-faint);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.toolbar-chips {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.toolbar-chip {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
+  font-size: var(--font-caption);
+  color: var(--v-text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.toolbar-chip.active {
+  border-color: var(--v-accent);
+  color: var(--v-accent);
+}
+
+/* ── 响应式 ── */
+@media (max-width: 1023px) and (min-width: 768px) {
+  .top-readouts { gap: clamp(6px, 1vw, var(--s3)); }
+  .icon-btn span:last-child { opacity: 0; max-width: 0; overflow: hidden; }
+  .icon-btn { padding-inline: var(--s2); gap: 0; }
+  .brand-sub { display: none; }
 }
 
 @media (max-width: 767px) {
-  .v-app-shell {
-    grid-template-rows: 48px 132px minmax(0, 1fr) auto 40px;
-    grid-template-columns: 1fr;
-    gap: var(--s4);
-    padding: var(--s4);
-  }
-
-  .v-topbar {
-    grid-row: 1;
-    grid-column: 1;
-  }
-
-  .top-readouts {
-    display: none;
-  }
-
-  .top-actions {
-    gap: var(--s1);
-  }
-
-  .icon-btn {
-    padding-inline: var(--s2);
-  }
-
-  .icon-btn span:last-child {
-    display: none;
-  }
-
-  .v-left-rail {
-    grid-row: 2;
-    grid-column: 1;
-    height: 132px;
-    overflow: auto;
-  }
-
-  .v-workbench {
-    grid-row: 3;
-    grid-column: 1;
-  }
-
-  .v-review-lamp {
-    grid-row: 4;
-    grid-column: 1;
-    max-height: 280px;
-  }
-
-  .v-bottombar {
-    grid-row: 5;
-    grid-column: 1;
-    overflow: hidden;
-  }
+  .top-readouts { display: none; }
+  .top-actions { gap: 3px; }
+  .icon-btn { padding-inline: 6px; height: 28px; gap: 0; }
+  .icon-btn span:last-child { opacity: 0; max-width: 0; overflow: hidden; }
+  .brand-sub { display: none; }
+  .brand-title { font-size: var(--font-small); }
 }
 </style>
