@@ -1,0 +1,297 @@
+/* =========================================================
+   VonishOCR Theme System
+   二维主题：style(desk/mono/hc) x mode(dark/light)
+   ========================================================= */
+
+:root {
+  color-scheme: dark;
+  --v-bg: #11110F;
+  --v-rail: #1A1916;
+  --v-panel: #222026;
+  --v-panel-raised: #2A262E;
+  --v-border: #3D383F;
+  --v-border-strong: #524D55;
+  --v-accent: #8FF6D2;
+  --v-text: #E7E1D0;
+  --v-muted: #A39B8F;
+  --v-text-muted: var(--v-muted);
+  --v-text-faint: #6B6560;
+  --v-error: #B85A50;
+  --v-warn: #D7B95A;
+  --v-insert: #56F28C;
+  --v-format: #F0B85A;
+  --v-paper: #E7E1D0;
+  --v-coal: #11110F;
+  --v-lamp: var(--v-accent);
+  --v-accent-08: rgba(143, 246, 210, 0.08);
+  --v-accent-12: rgba(143, 246, 210, 0.12);
+  --v-accent-16: rgba(143, 246, 210, 0.16);
+  --v-accent-24: rgba(143, 246, 210, 0.24);
+  --v-accent-32: rgba(143, 246, 210, 0.32);
+  --v-accent-dim: #1A3D32;
+  --v-error-dim: #3D1F1A;
+  --v-review: #8D5E3C;
+  --v-warm: var(--v-paper);
+  --v-warm-dim: #C8BEA8;
+  --v-focus: var(--v-accent);
+  --v-focus-color: var(--v-focus);
+  --v-focus-offset: 2px;
+  --v-border-width: 1px;
+  --v-selection-bg: var(--v-accent-24);
+  --v-scroll-thumb: var(--v-border);
+  --v-scroll-hover: var(--v-accent);
+  --glow-soft: 0 0 12px var(--v-accent-16);
+  --glow-active: 0 0 18px var(--v-accent-32);
+  --glow-hover: 0 0 10px var(--v-accent-24);
+  --skeleton-a: var(--v-rail);
+  --skeleton-b: var(--v-panel);
+  --theme-transition: background-color 300ms var(--ease-cut), color 200ms var(--ease-cut), border-color 200ms var(--ease-cut), box-shadow 200ms var(--ease-cut);
+}
+
+[data-theme-style="desk"][data-theme-mode="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme-style="desk"][data-theme-mode="light"] {
+  color-scheme: light;
+  --v-bg: #F3EFE4;
+  --v-rail: #DDD7C8;
+  --v-panel: #E7E1D0;
+  --v-panel-raised: #EFE8D8;
+  --v-border: #C5BFB3;
+  --v-border-strong: #8C806E;
+  --v-accent: #1A3D32;
+  --v-text: #11110F;
+  --v-muted: #6B6560;
+  --v-text-muted: #6B6560;
+  --v-text-faint: #8A806F;
+  --v-error: #B85A50;
+  --v-warn: #C9A03F;
+  --v-insert: #2E8B57;
+  --v-format: #C9A03F;
+  --v-paper: #F3EFE4;
+  --v-coal: #11110F;
+  --v-accent-08: rgba(26, 61, 50, 0.08);
+  --v-accent-12: rgba(26, 61, 50, 0.12);
+  --v-accent-16: rgba(26, 61, 50, 0.16);
+  --v-accent-24: rgba(26, 61, 50, 0.24);
+  --v-accent-32: rgba(26, 61, 50, 0.32);
+  --v-accent-dim: #CFE2D8;
+  --v-error-dim: #F0D6CF;
+  --v-selection-bg: rgba(26, 61, 50, 0.18);
+  --v-scroll-thumb: #C5BFB3;
+  --v-scroll-hover: #1A3D32;
+}
+
+[data-theme-style="mono"][data-theme-mode="dark"] {
+  color-scheme: dark;
+  --v-bg: #0A0A0A;
+  --v-rail: #111111;
+  --v-panel: #1A1A1A;
+  --v-panel-raised: #222222;
+  --v-border: #333333;
+  --v-border-strong: #666666;
+  --v-accent: #FFFFFF;
+  --v-text: #FFFFFF;
+  --v-muted: #888888;
+  --v-text-muted: #888888;
+  --v-text-faint: #666666;
+  --v-error: #FFFFFF;
+  --v-warn: #FFFFFF;
+  --v-insert: #FFFFFF;
+  --v-format: #FFFFFF;
+  --v-paper: #FFFFFF;
+  --v-coal: #0A0A0A;
+  --v-accent-08: rgba(255, 255, 255, 0.08);
+  --v-accent-12: rgba(255, 255, 255, 0.12);
+  --v-accent-16: rgba(255, 255, 255, 0.16);
+  --v-accent-24: rgba(255, 255, 255, 0.30);
+  --v-accent-32: rgba(255, 255, 255, 0.32);
+  --v-accent-dim: #262626;
+  --v-error-dim: #1A1A1A;
+  --v-selection-bg: rgba(255, 255, 255, 0.30);
+  --v-scroll-thumb: #333333;
+  --v-scroll-hover: #FFFFFF;
+}
+
+[data-theme-style="mono"][data-theme-mode="light"] {
+  color-scheme: light;
+  --v-bg: #FFFFFF;
+  --v-rail: #F5F5F5;
+  --v-panel: #EEEEEE;
+  --v-panel-raised: #E5E5E5;
+  --v-border: #CCCCCC;
+  --v-border-strong: #000000;
+  --v-accent: #000000;
+  --v-text: #000000;
+  --v-muted: #666666;
+  --v-text-muted: #666666;
+  --v-text-faint: #888888;
+  --v-error: #000000;
+  --v-warn: #000000;
+  --v-insert: #000000;
+  --v-format: #000000;
+  --v-paper: #FFFFFF;
+  --v-coal: #000000;
+  --v-accent-08: rgba(0, 0, 0, 0.08);
+  --v-accent-12: rgba(0, 0, 0, 0.08);
+  --v-accent-16: rgba(0, 0, 0, 0.10);
+  --v-accent-24: rgba(0, 0, 0, 0.16);
+  --v-accent-32: rgba(0, 0, 0, 0.24);
+  --v-accent-dim: #DDDDDD;
+  --v-error-dim: #EEEEEE;
+  --v-selection-bg: rgba(0, 0, 0, 0.16);
+  --v-scroll-thumb: #CCCCCC;
+  --v-scroll-hover: #000000;
+}
+
+[data-theme-style="hc"][data-theme-mode="dark"] {
+  color-scheme: dark;
+  --v-bg: #000000;
+  --v-rail: #000000;
+  --v-panel: #000000;
+  --v-panel-raised: #000000;
+  --v-border: #FFFFFF;
+  --v-border-strong: #FFFFFF;
+  --v-accent: #FFFFFF;
+  --v-text: #FFFFFF;
+  --v-muted: #FFFFFF;
+  --v-text-muted: #FFFFFF;
+  --v-text-faint: #FFFFFF;
+  --v-error: #FF0000;
+  --v-warn: #FFFF00;
+  --v-insert: #FFFFFF;
+  --v-format: #FFFFFF;
+  --v-paper: #FFFFFF;
+  --v-coal: #000000;
+  --v-accent-08: transparent;
+  --v-accent-12: transparent;
+  --v-accent-16: transparent;
+  --v-accent-24: transparent;
+  --v-accent-32: transparent;
+  --v-accent-dim: transparent;
+  --v-error-dim: transparent;
+  --v-focus: #FFFFFF;
+  --v-border-width: 2px;
+  --v-selection-bg: #FFFFFF;
+  --v-scroll-thumb: #FFFFFF;
+  --v-scroll-hover: #FFFFFF;
+  --glow-soft: none;
+  --glow-active: none;
+  --glow-hover: none;
+  --skeleton-a: #000000;
+  --skeleton-b: #111111;
+}
+
+[data-theme-style="hc"][data-theme-mode="light"] {
+  color-scheme: light;
+  --v-bg: #FFFFFF;
+  --v-rail: #FFFFFF;
+  --v-panel: #FFFFFF;
+  --v-panel-raised: #FFFFFF;
+  --v-border: #000000;
+  --v-border-strong: #000000;
+  --v-accent: #000000;
+  --v-text: #000000;
+  --v-muted: #000000;
+  --v-text-muted: #000000;
+  --v-text-faint: #000000;
+  --v-error: #CC0000;
+  --v-warn: #CC9900;
+  --v-insert: #000000;
+  --v-format: #000000;
+  --v-paper: #FFFFFF;
+  --v-coal: #000000;
+  --v-accent-08: transparent;
+  --v-accent-12: transparent;
+  --v-accent-16: transparent;
+  --v-accent-24: transparent;
+  --v-accent-32: transparent;
+  --v-accent-dim: transparent;
+  --v-error-dim: transparent;
+  --v-focus: #000000;
+  --v-border-width: 2px;
+  --v-selection-bg: #000000;
+  --v-scroll-thumb: #000000;
+  --v-scroll-hover: #000000;
+  --glow-soft: none;
+  --glow-active: none;
+  --glow-hover: none;
+  --skeleton-a: #FFFFFF;
+  --skeleton-b: #EEEEEE;
+}
+
+[data-theme-style="hc"] {
+  --r1: 0px;
+  --r2: 0px;
+  --r3: 0px;
+  --r4: 0px;
+}
+
+[data-theme-style="hc"] *,
+[data-theme-style="hc"] *::before,
+[data-theme-style="hc"] *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  opacity: 1 !important;
+}
+
+[data-theme-style="mono"] .v-insert-mark,
+[data-theme-style="mono"] .v-low-confidence {
+  color: currentColor;
+}
+
+[data-theme-style="mono"] .v-insert-mark {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-theme-style="mono"] .v-delete-mark {
+  color: currentColor;
+  text-decoration: line-through;
+}
+
+[data-theme-style="mono"] .v-format-mark {
+  border: 1px dashed currentColor;
+  color: currentColor;
+}
+
+[data-theme-style="hc"] .v-low-confidence {
+  position: relative;
+  display: inline-block;
+  border: 2px solid currentColor;
+  background: transparent;
+  padding: 2px 4px 2px 18px;
+}
+
+[data-theme-style="hc"] .v-low-confidence::before {
+  content: "!";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--v-accent);
+  color: var(--v-bg);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+[data-theme-style="hc"] .v-low-confidence::after {
+  content: "需复核";
+  display: inline-block;
+  margin-left: 6px;
+  padding-inline: 4px;
+  background: var(--v-accent);
+  color: var(--v-bg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+html.theme-switching body {
+  opacity: 0.72;
+  transition: opacity 150ms ease;
+}

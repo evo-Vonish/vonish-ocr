@@ -15,15 +15,7 @@
 
           <div class="drawer-body">
             <section>
-              <h4>显示模式</h4>
-              <select :value="themeStore.userTheme || 'system'" @change="themeStore.setTheme($event.target.value)">
-                <option value="system">跟随系统</option>
-                <option value="dark">深色 · 默认证据桌</option>
-                <option value="light">亮色 · 白天使用</option>
-                <option value="mono">黑白 · 去彩审阅</option>
-                <option value="hc">高对比 · 强制可见</option>
-              </select>
-              <p class="hint-text">当前生效：{{ themeLabel }}</p>
+              <ThemeControl />
             </section>
 
             <section>
@@ -40,6 +32,15 @@
               <label><input type="checkbox" v-model="config.auto_rotate" /> 自动旋转</label>
               <label><input type="checkbox" v-model="config.perspective_correct" /> 透视矫正</label>
               <label><input type="checkbox" v-model="config.scene_detect" /> 场景检测</label>
+              <div class="strategy-row">
+                <span>默认强度</span>
+                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'light' }" @click="config.preprocess_config.default_strategy = 'light'">轻量</button>
+                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'standard' }" @click="config.preprocess_config.default_strategy = 'standard'">标准</button>
+                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'heavy' }" @click="config.preprocess_config.default_strategy = 'heavy'">深度</button>
+              </div>
+              <label><input type="checkbox" v-model="config.preprocess_config.show_preview" /> 显示预处理对比图</label>
+              <label><input type="checkbox" v-model="config.preprocess_config.fallback_to_original" /> 失败时自动回退原图</label>
+              <label>CLAHE clipLimit <input class="inline-number" type="number" min="1" max="8" step="0.5" v-model.number="config.preprocess_config.advanced.clahe_clip_limit" /></label>
             </section>
 
             <section>
@@ -104,25 +105,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, computed } from 'vue'
+import { reactive, watch } from 'vue'
 import { useConfigStore } from '../stores/configStore'
-import { useThemeStore } from '../stores/themeStore'
 import { showToast } from '../composables/useToast'
 import { notify } from '../composables/useNotify'
+import ThemeControl from './ThemeControl.vue'
 
 const props = defineProps({ visible: Boolean })
 const emit = defineEmits(['update:visible', 'open-ai-center'])
 const configStore = useConfigStore()
-const themeStore = useThemeStore()
-
-const themeNames = {
-  dark: '深色证据桌',
-  light: '亮色白天',
-  mono: '黑白审阅',
-  hc: '高对比',
-}
-
-const themeLabel = computed(() => themeNames[themeStore.resolvedTheme] || themeStore.resolvedTheme)
 
 function close() {
   emit('update:visible', false)
@@ -145,10 +136,29 @@ const config = reactive({
   include_diff: false,
   batch_ai_refine: false,
   power_mode: 'balanced',
+  preprocess_config: {
+    enabled: true,
+    default_strategy: 'standard',
+    show_preview: true,
+    fallback_to_original: true,
+    advanced: {
+      clahe_clip_limit: 2.0,
+      denoise_method: 'median',
+    },
+  },
 })
 
 watch(() => props.visible, (v) => {
-  if (v) Object.assign(config, JSON.parse(JSON.stringify(configStore.config)))
+  if (v) {
+    Object.assign(config, JSON.parse(JSON.stringify(configStore.config)))
+    config.preprocess_config ||= {}
+    config.preprocess_config.default_strategy ||= 'standard'
+    config.preprocess_config.show_preview ??= true
+    config.preprocess_config.fallback_to_original ??= true
+    config.preprocess_config.advanced ||= {}
+    config.preprocess_config.advanced.clahe_clip_limit ??= 2.0
+    config.preprocess_config.advanced.denoise_method ||= 'median'
+  }
 })
 
 function openDir() {
@@ -284,6 +294,7 @@ async function save() {
 
 .drawer-body input[type='text'],
 .drawer-body input[type='password'],
+.drawer-body input[type='number'],
 .drawer-body select {
   width: 100%;
   min-height: 36px;
@@ -295,6 +306,36 @@ async function save() {
   color: var(--v-text);
   outline: none;
   transition: border-color var(--dur-base) var(--ease-cut);
+}
+
+.strategy-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-top: var(--s3);
+  color: var(--v-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.strategy-row button {
+  min-height: 28px;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  background: transparent;
+  color: var(--v-text-muted);
+  cursor: pointer;
+  padding-inline: var(--s2);
+}
+
+.strategy-row button.active {
+  color: var(--v-text);
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+}
+
+.inline-number {
+  max-width: 96px;
 }
 
 .drawer-body input:focus,

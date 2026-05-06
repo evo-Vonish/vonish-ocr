@@ -1,0 +1,259 @@
+/* =========================================================
+   VonishOCR Global Interaction Details
+   证据桌微交互、焦点、滚动、骨架与无障碍兜底
+   ========================================================= */
+
+* {
+  transition: var(--theme-transition);
+}
+
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--v-focus);
+  outline-offset: var(--v-focus-offset);
+  transition: outline-color 150ms ease;
+}
+
+[data-theme-style="hc"] *:focus-visible {
+  outline-width: 2px;
+  border-radius: 0 !important;
+}
+
+::selection {
+  background: var(--v-selection-bg);
+  color: var(--v-text);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--v-scroll-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--v-scroll-hover);
+}
+
+button:hover,
+.icon-btn:hover,
+.state-tab:hover,
+.export-tab:hover,
+.export-btn:hover,
+.text-btn:hover {
+  animation: v-hover-glow 1500ms var(--ease-cut) infinite;
+}
+
+.v-card:hover,
+.queue-item:hover,
+.result-col:hover,
+.v-review-section:hover,
+.v-confidence-panel:hover {
+  transform: translateY(-1px);
+  border-color: var(--v-border-strong);
+}
+
+[data-theme-style="hc"] button:hover,
+[data-theme-style="hc"] .icon-btn:hover,
+[data-theme-style="hc"] .state-tab:hover,
+[data-theme-style="hc"] .export-tab:hover,
+[data-theme-style="hc"] .export-btn:hover,
+[data-theme-style="hc"] .text-btn:hover,
+[data-theme-style="hc"] .v-card:hover,
+[data-theme-style="hc"] .queue-item:hover,
+[data-theme-style="hc"] .result-col:hover,
+[data-theme-style="hc"] .v-review-section:hover,
+[data-theme-style="hc"] .v-confidence-panel:hover {
+  animation: none;
+  transform: none;
+}
+
+a,
+.text-link {
+  position: relative;
+  text-decoration: none;
+}
+
+a::after,
+.text-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 0;
+  height: 1px;
+  background: currentColor;
+  transition: width 200ms var(--ease-cut);
+}
+
+a:hover::after,
+.text-link:hover::after {
+  width: 100%;
+}
+
+.queue-count,
+.result-chip,
+.v-confidence-value,
+.v-confidence-error,
+.progress-value {
+  transition: color 300ms var(--ease-cut), transform 300ms var(--ease-cut);
+}
+
+.lamp-dot.on,
+.pulse-running,
+.v-status-dot.running {
+  animation: v-status-running 1500ms var(--ease-cut) infinite;
+}
+
+.pulse-waiting,
+.v-status-dot.waiting {
+  animation: v-status-waiting 2000ms var(--ease-cut) infinite;
+}
+
+.pulse-error,
+.v-status-dot.error,
+.queue-item.failed::before {
+  animation: v-status-error 300ms linear infinite;
+}
+
+.queue-item.selected::before {
+  animation: v-line-grow 150ms var(--ease-cut) both;
+}
+
+.queue-item.failed {
+  animation: v-error-shake 200ms ease both;
+}
+
+.drop-area.active,
+.drop-area.processing,
+.ghost-item.dragover {
+  border-width: 2px !important;
+  border-color: var(--v-accent) !important;
+  background: var(--v-accent-08) !important;
+  animation: v-drag-glow 1500ms var(--ease-cut) infinite;
+}
+
+.drop-area.drop-flash {
+  animation: v-drop-flash 300ms var(--ease-cut) both;
+}
+
+.skeleton-line,
+.skeleton-thumb,
+.is-loading .thumb,
+.thumb.loading {
+  position: relative;
+  overflow: hidden;
+  background: var(--skeleton-a);
+}
+
+.skeleton-line::after,
+.skeleton-thumb::after,
+.is-loading .thumb::after,
+.thumb.loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--skeleton-b), transparent);
+  animation: v-skeleton-scan 1500ms linear infinite;
+}
+
+.v-low-confidence {
+  position: relative;
+  border: 1px dashed var(--v-accent);
+  background: var(--v-accent-16);
+  border-radius: var(--r2);
+  padding-inline: 4px;
+}
+
+.v-low-confidence::before {
+  content: "?";
+  position: absolute;
+  top: -8px;
+  right: -7px;
+  min-width: 12px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--v-accent);
+  background: var(--v-bg);
+  color: var(--v-accent);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1;
+}
+
+@keyframes v-hover-glow {
+  0%, 100% { box-shadow: 0 0 8px var(--v-accent-16); }
+  50% { box-shadow: 0 0 12px var(--v-accent-32); }
+}
+
+@keyframes v-status-running {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.4); }
+}
+
+@keyframes v-status-waiting {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes v-status-error {
+  0%, 100% { transform: translateX(0); }
+  33% { transform: translateX(2px); }
+  66% { transform: translateX(-2px); }
+}
+
+@keyframes v-line-grow {
+  from { transform: scaleY(0); transform-origin: top; }
+  to { transform: scaleY(1); transform-origin: top; }
+}
+
+@keyframes v-error-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(3px); }
+  75% { transform: translateX(-3px); }
+}
+
+@keyframes v-drag-glow {
+  0%, 100% { box-shadow: 0 0 8px var(--v-accent-16); }
+  50% { box-shadow: 0 0 16px var(--v-accent-32); }
+}
+
+@keyframes v-drop-flash {
+  0% { box-shadow: 0 0 0 0 var(--v-accent-08); }
+  50% { box-shadow: inset 0 0 0 999px var(--v-accent-16); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes v-skeleton-scan {
+  to { transform: translateX(100%); }
+}
+
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

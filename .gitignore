@@ -46,6 +46,8 @@ desktop.ini
 .temp/
 .cache/
 *.tmp
+temp/
+.codebuddy/
 
 # ── Build outputs ──
 *.msi

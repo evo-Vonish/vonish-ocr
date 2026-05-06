@@ -1,0 +1,51 @@
+/* ============================================================
+   VonishOCR Fluid Tokens —— 全局流体变量
+   形态自适应基础层：所有尺寸用 clamp() 流变，非断点硬编码
+   ============================================================ */
+
+:root {
+  /* ── 流体字号 ── */
+  --font-display: clamp(1.75rem, 4vw + 0.5rem, 3.5rem);
+  --font-h1:      clamp(1.25rem, 2.5vw + 0.5rem, 2rem);
+  --font-h2:      clamp(1.1rem, 1.8vw + 0.4rem, 1.5rem);
+  --font-body:    clamp(0.875rem, 1vw + 0.4rem, 1rem);
+  --font-small:   clamp(0.75rem, 0.8vw + 0.3rem, 0.875rem);
+  --font-caption: clamp(0.6875rem, 0.6vw + 0.25rem, 0.75rem);
+  --font-micro:   clamp(0.5rem, 0.4vw + 0.2rem, 0.5625rem);
+  --font-mono:    clamp(0.75rem, 0.8vw + 0.3rem, 0.875rem);
+
+  /* ── 流体间距 ── */
+  --space-xs: clamp(0.25rem, 0.5vw, 0.5rem);
+  --space-sm: clamp(0.5rem, 0.8vw, 0.75rem);
+  --space-md: clamp(0.75rem, 1.5vw, 1.25rem);
+  --space-lg: clamp(1rem, 3vw, 2rem);
+  --space-xl: clamp(2rem, 5vw, 4rem);
+  --space-2xl: clamp(3rem, 7vw, 6rem);
+
+  /* ── 流体圆角 ── */
+  --radius-xs: clamp(2px, 0.3vw, 4px);
+  --radius-sm: clamp(3px, 0.5vw, 6px);
+  --radius-md: clamp(4px, 0.7vw, 8px);
+  --radius-lg: clamp(6px, 1vw, 12px);
+
+  /* ── 流体栏宽（覆盖 global.css 固定值）── */
+  --left-rail-w: clamp(200px, 18vw, 280px);
+  --right-review-w: clamp(200px, 20vw, 320px);
+  --content-max: clamp(640px, 60vw, 900px);
+
+  /* ── 流体栏高 ── */
+  --topbar-h: clamp(40px, 5vh, 48px);
+  --bottombar-h: clamp(32px, 4vh, 40px);
+
+  /* ── 布局间隙 ── */
+  --layout-gap: clamp(12px, 1.5vw, 24px);
+  --layout-pad: clamp(12px, 2vw, 32px);
+
+  /* ── 容器查询开启标记 ── */
+  --cq-enabled: true;
+}
+
+/* 全局应用流体基础 */
+body {
+  font-size: var(--font-body);
+}

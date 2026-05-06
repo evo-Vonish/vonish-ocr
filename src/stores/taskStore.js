@@ -19,6 +19,8 @@ export const useTaskStore = defineStore('task', () => {
   const isProcessing = ref(false)
   const results = ref({})
   const errors = ref({})
+  const preprocessJobs = ref({})
+  const pipelineStage = ref('idle')
 
   // Getters
   const currentTask = computed(() => {
@@ -44,6 +46,7 @@ export const useTaskStore = defineStore('task', () => {
         currentTaskId: currentTaskId.value,
         results: results.value,
         errors: errors.value,
+        preprocessJobs: preprocessJobs.value,
       }))
     } catch (e) {
       console.warn('持久化 OCR 结果失败:', e)
@@ -56,8 +59,16 @@ export const useTaskStore = defineStore('task', () => {
       const raw = window.localStorage.getItem(STORAGE_KEY)
       if (!raw) return
       const data = JSON.parse(raw)
+      const restoredResults = data.results || {}
+      const restoredErrors = data.errors || {}
+      const seen = new Set()
       tasks.value = Array.isArray(data.tasks)
-        ? data.tasks.map(t => ({
+        ? data.tasks.filter(t => {
+            if (!t?.id || seen.has(t.id)) return false
+            seen.add(t.id)
+            // 没有原图、没有结果、没有错误的恢复项就是脏数据；直接丢弃，避免队列幽灵项。
+            return !!t.base64 || !!restoredResults[t.id] || !!restoredErrors[t.id]
+          }).map(t => ({
             ...t,
             status: t.status === 'processing' || t.status === 'queued' ? 'pending' : t.status,
             selected: false,
@@ -66,8 +77,9 @@ export const useTaskStore = defineStore('task', () => {
             restored: true,
           }))
         : []
-      results.value = data.results || {}
-      errors.value = data.errors || {}
+      results.value = restoredResults
+      errors.value = restoredErrors
+      preprocessJobs.value = data.preprocessJobs || {}
       currentTaskId.value = tasks.value.some(t => t.id === data.currentTaskId)
         ? data.currentTaskId
         : (tasks.value[0]?.id || null)
@@ -103,19 +115,23 @@ export const useTaskStore = defineStore('task', () => {
     if (idx !== -1) tasks.value.splice(idx, 1)
     delete results.value[taskId]
     delete errors.value[taskId]
+    delete preprocessJobs.value[taskId]
     if (currentTaskId.value === taskId) currentTaskId.value = tasks.value[0]?.id || null
     persist()
   }
 
   function clearCompleted() {
     // 清除已完成、失败、历史恢复的任务
-    tasks.value = tasks.value.filter(t => t.status !== 'done' && t.status !== 'failed' && !t.restored)
+    tasks.value = tasks.value.filter(t => !t.restored && t.status !== 'done' && t.status !== 'failed')
     const taskIds = new Set(tasks.value.map(t => t.id))
     for (const id of Object.keys(results.value)) {
       if (!taskIds.has(id)) delete results.value[id]
     }
     for (const id of Object.keys(errors.value)) {
       if (!taskIds.has(id)) delete errors.value[id]
+    }
+    for (const id of Object.keys(preprocessJobs.value)) {
+      if (!taskIds.has(id)) delete preprocessJobs.value[id]
     }
     if (currentTaskId.value && !taskIds.has(currentTaskId.value)) {
       currentTaskId.value = tasks.value[0]?.id || null
@@ -130,6 +146,7 @@ export const useTaskStore = defineStore('task', () => {
     for (const id of selectedIds) {
       delete results.value[id]
       delete errors.value[id]
+      delete preprocessJobs.value[id]
     }
     if (currentTaskId.value && selectedIds.has(currentTaskId.value)) {
       currentTaskId.value = tasks.value[0]?.id || null
@@ -222,6 +239,20 @@ export const useTaskStore = defineStore('task', () => {
     return errors.value[taskId] || null
   }
 
+  function setPreprocessJob(taskId, job) {
+    if (!taskId || !job) return
+    preprocessJobs.value[taskId] = job
+    persist()
+  }
+
+  function getPreprocessJob(taskId) {
+    return preprocessJobs.value[taskId] || null
+  }
+
+  function setPipelineStage(stage) {
+    pipelineStage.value = stage || 'idle'
+  }
+
   return {
     tasks,
     currentTaskId,
@@ -229,6 +260,8 @@ export const useTaskStore = defineStore('task', () => {
     isProcessing,
     results,
     errors,
+    preprocessJobs,
+    pipelineStage,
     pendingCount,
     processingCount,
     doneCount,
@@ -249,6 +282,9 @@ export const useTaskStore = defineStore('task', () => {
     getResult,
     setError,
     getError,
+    setPreprocessJob,
+    getPreprocessJob,
+    setPipelineStage,
     restorePersisted,
     persist,
   }

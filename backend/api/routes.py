@@ -6,6 +6,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -14,13 +16,182 @@ import cv2
 import numpy as np
 from PIL import Image
 from fastapi import APIRouter, Body, File, Form, Request, UploadFile, WebSocket, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # 全局 WebSocket 连接池：task_id -> WebSocket
 _ws_connections: dict[str, WebSocket] = {}
+_preprocess_executor = ThreadPoolExecutor(max_workers=4)
+
+
+def _decode_image_bytes(image_b64: str) -> bytes:
+    """解析前端 dataURL/base64 图片。"""
+    if not image_b64:
+        raise HTTPException(status_code=400, detail={"code": "MISSING_IMAGE", "message": "缺少 image 字段"})
+    try:
+        if "," in image_b64:
+            image_b64 = image_b64.split(",", 1)[1]
+        return base64.b64decode(image_b64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_IMAGE", "message": f"图片 base64 解码失败: {e}"})
+
+
+def _get_preprocess_store(request: Request):
+    """懒加载预处理 job store，避免 main.py 初始化顺序耦合。"""
+    if not hasattr(request.app.state, "preprocess_store"):
+        from preprocess.jobs import PreprocessJobStore
+
+        request.app.state.preprocess_store = PreprocessJobStore()
+    return request.app.state.preprocess_store
+
+
+async def _run_preprocess_job(
+    request: Request,
+    image_bytes: bytes,
+    file_name: str = "image.png",
+    strategy: str = "standard",
+    scene_override: str | None = None,
+    config_override: dict | None = None,
+) -> dict:
+    """在线程池中执行完整预处理，并落盘生成可预览 job。"""
+    store = _get_preprocess_store(request)
+    job_id, job_dir = store.create_dir()
+    original_path = job_dir / "original.png"
+    processed_path = job_dir / "processed.png"
+    original_path.write_bytes(image_bytes)
+
+    def work():
+        from preprocess.jobs import PreprocessJob
+        from preprocess.pipeline import PreprocessPipeline, backend_to_frontend_scene
+        from scene.classifier import RuleBasedSceneClassifier
+
+        started = time_ms()
+        img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(status_code=400, detail={"code": "INVALID_IMAGE", "message": "无法解码图片，格式可能不支持"})
+
+        exif = {}
+        try:
+            pil_img = Image.open(BytesIO(image_bytes))
+            raw = pil_img._getexif()
+            if raw:
+                exif = {str(k): v for k, v in raw.items()}
+        except Exception:
+            pass
+
+        if scene_override:
+            scene_type = scene_override
+            scene_confidence = 1.0
+        elif getattr(request.app.state.config_manager.load(), "scene_detect", True):
+            profile = RuleBasedSceneClassifier().classify(img, exif=exif)
+            scene_type = profile.scene
+            scene_confidence = profile.confidence
+        else:
+            scene_type = "printed_document"
+            scene_confidence = 0.5
+
+        options = {"exif": exif, "strategy": strategy}
+        options.update(config_override or {})
+        result = PreprocessPipeline().run(img, scene_type, options=options)
+        ok, encoded = cv2.imencode(".png", result["image"])
+        if not ok:
+            raise RuntimeError("预处理图片编码失败")
+        processed_path.write_bytes(encoded.tobytes())
+
+        elapsed = int(time_ms() - started)
+        frontend_scene = backend_to_frontend_scene(scene_type, scene_confidence)
+        job = PreprocessJob(
+            job_id=job_id,
+            original_path=str(original_path),
+            processed_path=str(processed_path),
+            scene=scene_type,
+            frontend_scene=frontend_scene,
+            scene_confidence=round(float(scene_confidence), 3),
+            steps_applied=result.get("steps_applied", []),
+            quality_score=float(result.get("quality_after", 0)),
+            quality_metrics=result.get("quality_metrics", {}),
+            elapsed_ms=elapsed,
+            fallback=bool(result.get("used_original")),
+            strategy=strategy,
+            created_at=datetime.now().timestamp(),
+        )
+        store.save(job)
+        return _preprocess_response(job)
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_preprocess_executor, work)
+
+
+def _preprocess_response(job) -> dict:
+    return {
+        "job_id": job.job_id,
+        "original_url": f"/v1/preprocess/{job.job_id}/original",
+        "processed_url": f"/v1/preprocess/{job.job_id}/processed",
+        "scene": job.scene,
+        "frontend_scene": job.frontend_scene,
+        "scene_confidence": job.scene_confidence,
+        "steps_applied": job.steps_applied,
+        "quality_score": job.quality_score,
+        "quality_metrics": job.quality_metrics,
+        "elapsed_ms": job.elapsed_ms,
+        "fallback": job.fallback,
+        "strategy": job.strategy,
+    }
+
+
+def _job_to_preprocess_meta(job) -> dict:
+    """把预处理 job 转成 OCR 结果里的轻量元数据，前端据此展示四栏预处理信息。"""
+    return {
+        "job_id": job.job_id,
+        "scene": job.scene,
+        "frontend_scene": job.frontend_scene,
+        "scene_confidence": job.scene_confidence,
+        "steps": job.steps_applied,
+        "time_ms": job.elapsed_ms,
+        "used_original": job.fallback,
+        "quality_score": job.quality_score,
+        "quality_metrics": job.quality_metrics,
+        "fallback": job.fallback,
+        "strategy": job.strategy,
+        "original_url": f"/v1/preprocess/{job.job_id}/original",
+        "processed_url": f"/v1/preprocess/{job.job_id}/processed",
+    }
+
+
+def time_ms() -> float:
+    return datetime.now().timestamp() * 1000
+
+
+@router.post("/v1/preprocess")
+async def preprocess_preview(request: Request, payload: dict = Body(...)):
+    """生成可预览的预处理 job，所有 OpenCV 工作都在线程池里执行。"""
+    image_bytes = _decode_image_bytes(payload.get("image", ""))
+    strategy = payload.get("strategy") or "auto"
+    if strategy == "auto":
+        strategy = "standard"
+    return await _run_preprocess_job(
+        request=request,
+        image_bytes=image_bytes,
+        file_name=payload.get("file") or payload.get("file_name") or "image.png",
+        strategy=strategy,
+        scene_override=payload.get("scene_override"),
+        config_override=payload.get("config_override") or {},
+    )
+
+
+@router.get("/v1/preprocess/{job_id}/{kind}")
+async def preprocess_image(request: Request, job_id: str, kind: str):
+    """读取预处理临时图片，只暴露当前 job 下的 original/processed。"""
+    store = _get_preprocess_store(request)
+    try:
+        path = store.get_image_path(job_id, kind)
+    except KeyError:
+        raise HTTPException(status_code=404, detail={"code": "PREPROCESS_NOT_FOUND", "message": "预处理任务不存在"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_PREPROCESS_IMAGE", "message": str(e)})
+    return FileResponse(path)
 
 
 @router.post("/v1/ocr")
@@ -36,10 +207,157 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
     """
     image_b64 = payload.get("image", "")
     options = payload.get("options", {}) or {}
+    preprocess_job_id = payload.get("preprocess_job_id") or options.pop("preprocess_job_id", None)
+    skip_preprocess = bool(payload.get("skip_preprocess") or options.pop("skip_preprocess", False))
+    preprocess_strategy = payload.get("preprocess_strategy") or options.pop("preprocess_strategy", None) or "standard"
     model_id = payload.get("model", "rapidocr-mobile-cn")
     engine_mgr = request.app.state.engine_manager
+    # 新版预处理链路在模型选择后直接返回；旧逻辑保留在下方，避免大范围改动影响回滚。
     if model_id == "auto" or model_id not in engine_mgr._factories:
         model_id = "rapidocr-mobile-cn"  # fallback 到极速版，避免 auto 报错
+
+    # 新版预处理链路：支持预处理 job、跳过预处理和 OCR 内部默认预处理。
+    if not image_b64 and not preprocess_job_id:
+        raise HTTPException(status_code=400, detail={"code": "MISSING_IMAGE", "message": "缺少 image 字段"})
+
+    cfg = request.app.state.config_manager.load()
+    scene_type = "printed_document"
+    preprocess_meta = {
+        "scene": scene_type,
+        "frontend_scene": "混合未知",
+        "scene_confidence": 0,
+        "steps": [],
+        "time_ms": 0,
+        "used_original": False,
+        "quality_score": 0,
+        "quality_metrics": {},
+        "fallback": False,
+        "strategy": "skip" if skip_preprocess else preprocess_strategy,
+    }
+
+    if preprocess_job_id:
+        store = _get_preprocess_store(request)
+        job = store.get(preprocess_job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail={"code": "PREPROCESS_NOT_FOUND", "message": "预处理任务不存在"})
+        processed_bytes = Path(job.processed_path).read_bytes()
+        scene_type = job.scene
+        preprocess_meta = _job_to_preprocess_meta(job)
+    else:
+        image_bytes = _decode_image_bytes(image_b64)
+        max_image_size = 50 * 1024 * 1024
+        if len(image_bytes) > max_image_size:
+            raise HTTPException(status_code=413, detail={"code": "FILE_TOO_LARGE", "message": f"图片大小超过 50MB 限制 ({len(image_bytes) // (1024*1024)}MB)"})
+
+        if skip_preprocess or not getattr(cfg, "preprocess", True):
+            img_array = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+            if img_array is None:
+                raise HTTPException(status_code=400, detail={"code": "INVALID_IMAGE", "message": "无法解码图片，格式可能不支持"})
+            exif = {}
+            try:
+                pil_img = Image.open(BytesIO(image_bytes))
+                exif_raw = pil_img._getexif()
+                if exif_raw:
+                    exif = {str(k): v for k, v in exif_raw.items()}
+            except Exception:
+                pass
+            if getattr(cfg, "scene_detect", True):
+                from preprocess.pipeline import backend_to_frontend_scene
+                from scene.classifier import RuleBasedSceneClassifier
+
+                profile = RuleBasedSceneClassifier().classify(img_array, exif=exif)
+                scene_type = profile.scene
+                preprocess_meta["scene"] = scene_type
+                preprocess_meta["frontend_scene"] = backend_to_frontend_scene(scene_type, profile.confidence)
+                preprocess_meta["scene_confidence"] = round(float(profile.confidence), 3)
+            preprocess_meta["used_original"] = True
+            preprocess_meta["fallback"] = True
+            processed_bytes = image_bytes
+        else:
+            prep = await _run_preprocess_job(
+                request=request,
+                image_bytes=image_bytes,
+                file_name=payload.get("file") or payload.get("file_name") or "image.png",
+                strategy=preprocess_strategy,
+                scene_override=payload.get("scene_override"),
+                config_override=payload.get("config_override") or {},
+            )
+            job = _get_preprocess_store(request).get(prep["job_id"])
+            processed_bytes = Path(job.processed_path).read_bytes()
+            scene_type = job.scene
+            preprocess_meta = _job_to_preprocess_meta(job)
+
+    if model_id not in engine_mgr.engines:
+        for loaded_id in list(engine_mgr.engines.keys()):
+            if loaded_id != model_id:
+                try:
+                    await engine_mgr.unload(loaded_id)
+                    logger.info("切换模型时卸载旧模型: %s", loaded_id)
+                except Exception:
+                    pass
+        try:
+            await engine_mgr.load(model_id)
+        except ValueError as e:
+            logger.warning("模型未找到: %s", e)
+            raise HTTPException(status_code=400, detail={"code": "MODEL_NOT_LOADED", "message": str(e)})
+        except Exception as e:
+            logger.exception("加载模型失败")
+            raise HTTPException(status_code=500, detail={"code": "MODEL_LOAD_ERROR", "message": f"模型加载失败: {e}"})
+
+    try:
+        result = await engine_mgr.recognize(processed_bytes, model_id=model_id, options=options)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("OCR 识别失败")
+        raise HTTPException(status_code=500, detail={"code": "OCR_ENGINE_ERROR", "message": f"OCR 引擎错误: {e}"})
+
+    result["scene"] = preprocess_meta["scene"]
+    result["preprocess_steps"] = preprocess_meta["steps"]
+    result["preprocess_time_ms"] = preprocess_meta["time_ms"]
+    result["preprocess"] = preprocess_meta
+    if preprocess_meta["used_original"]:
+        result["preprocess_used_original"] = True
+
+    try:
+        ai_cfg = cfg.ai
+        from ai_refiner import AIRefiner
+
+        refiner = AIRefiner(
+            enabled=ai_cfg.enabled,
+            provider=ai_cfg.provider,
+            api_key=ai_cfg.api_key,
+            api_base=ai_cfg.api_base,
+            model=ai_cfg.model,
+            temperature=ai_cfg.temperature,
+            trigger_mode=ai_cfg.trigger_mode,
+            schemes=request.app.state.config_manager.get_active_ai_scheme_with_failover(),
+        )
+        ai_result = await refiner.refine(
+            raw_text=result.get("text", ""),
+            scene_type=scene_type,
+            ocr_confidence=result.get("confidence", 0.0),
+        )
+        output_mode = options.get("output_mode") or cfg.output_mode or "smart"
+        if output_mode == "smart":
+            output_mode = "dual" if refiner.should_refine(result.get("confidence", 0.0)) else "raw"
+        if output_mode == "raw":
+            return result
+        if output_mode == "polished":
+            return {**result, "text": ai_result["polished"], "ai": ai_result}
+        return {**result, "ai": ai_result}
+    except Exception as e:
+        logger.warning("AI Refiner 后处理失败: %s", e)
+        return {
+            **result,
+            "ai": {
+                "polished": result.get("text", ""),
+                "diff": [],
+                "uncertain": [],
+                "confidence": result.get("confidence", 0),
+                "error": {"code": "AI_REFINER_FAILED", "message": f"AI 修复失败: {e}"},
+            },
+        }
 
     if not image_b64:
         raise HTTPException(status_code=400, detail={"code": "MISSING_IMAGE", "message": "缺少 image 字段"})

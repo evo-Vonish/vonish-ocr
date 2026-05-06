@@ -278,6 +278,89 @@ def assess_quality(image: np.ndarray) -> float:
     return float(score)
 
 
+def assess_ocr_readiness(image: np.ndarray) -> dict:
+    """计算 OCR 可读性评分。
+
+    返回 0-1 的综合评分以及指标明细。评分低说明预处理可能让文字边缘、
+    对比度或光照均匀性变差，调用方可以据此回退到原图。
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    sobel = cv2.Sobel(gray, cv2.CV_64F, 1, 1, ksize=3)
+    edge_acuity = float(np.mean(np.abs(sobel)))
+    edges = cv2.Canny(gray, 50, 150)
+    edge_density = float(np.count_nonzero(edges) / edges.size)
+
+    contrasts = []
+    for y in range(0, gray.shape[0], 32):
+        for x in range(0, gray.shape[1], 32):
+            block = gray[y:y + 32, x:x + 32]
+            if block.size:
+                lo, hi = float(block.min()), float(block.max())
+                contrasts.append((hi - lo) / (hi + lo + 1.0))
+    local_contrast = float(np.median(contrasts)) if contrasts else 0.0
+    brightness = float(np.mean(gray))
+    brightness_balance = max(0.0, 1.0 - abs(brightness - 128.0) / 128.0)
+    shadow_std = float(np.std(cv2.blur(gray, (31, 31))))
+    shadow_uniformity = max(0.0, 1.0 - min(1.0, shadow_std / 80.0))
+
+    score = (
+        min(1.0, lap_var / 500.0) * 0.26
+        + min(1.0, edge_acuity / 100.0) * 0.22
+        + min(1.0, local_contrast * 3.0) * 0.22
+        + min(1.0, edge_density * 20.0) * 0.16
+        + brightness_balance * 0.08
+        + shadow_uniformity * 0.06
+    )
+    return {
+        "score": round(float(score), 3),
+        "laplacian_variance": round(lap_var, 2),
+        "edge_acuity": round(edge_acuity, 2),
+        "local_contrast": round(local_contrast, 3),
+        "brightness": round(brightness, 2),
+        "shadow_uniformity": round(shadow_uniformity, 3),
+        "edge_density": round(edge_density, 4),
+    }
+
+
+FRONTEND_SCENE_NAMES = {
+    SCENE_PRINTED_DOCUMENT: "印刷清晰",
+    SCENE_SCREENSHOT: "印刷清晰",
+    SCENE_ID_CARD: "印刷清晰",
+    SCENE_HANDWRITTEN_NOTE: "手写材料",
+    SCENE_TABLE_FORM: "复杂版面",
+    SCENE_EXAM_PAPER: "复杂版面",
+    SCENE_LOW_QUALITY_SCAN: "退化图像",
+    SCENE_PHOTO_WITH_TEXT: "退化图像",
+}
+
+
+def backend_to_frontend_scene(scene: str, confidence: float = 1.0) -> str:
+    """把后端 8 类场景压缩为前端 5 类展示名。"""
+    if confidence < 0.7:
+        return "混合未知"
+    return FRONTEND_SCENE_NAMES.get(scene, "混合未知")
+
+
+def _steps_for_strategy(scene_type: str, strategy: str) -> List[str]:
+    """按轻量 / 标准 / 深度策略裁剪预处理步骤。"""
+    base = list(SCENE_PIPELINE_MAP.get(scene_type, []))
+    if strategy == "skip" or scene_type == SCENE_SCREENSHOT:
+        return []
+    if strategy == "light":
+        return [s for s in base if s in {"auto_rotate", "deskew", "contrast_clahe", "perspective_rectify"}]
+    if strategy == "heavy":
+        heavy = list(base)
+        if scene_type in {SCENE_LOW_QUALITY_SCAN, SCENE_PHOTO_WITH_TEXT, SCENE_EXAM_PAPER} and "remove_shadow" not in heavy:
+            heavy.insert(1, "remove_shadow")
+        if scene_type == SCENE_LOW_QUALITY_SCAN and "denoise_nlm" not in heavy:
+            heavy.insert(max(1, len(heavy) - 1), "denoise_nlm")
+        if scene_type in {SCENE_LOW_QUALITY_SCAN, SCENE_HANDWRITTEN_NOTE} and "sharpen_usm" not in heavy:
+            heavy.append("sharpen_usm")
+        return heavy
+    return base
+
+
 # =============================================================================
 # 预处理流水线
 # =============================================================================
@@ -323,6 +406,7 @@ class PreprocessPipeline:
             }
         """
         options = options or {}
+        strategy = options.get("strategy") or "standard"
         original = image.copy()
         result = image.copy()
         steps_applied: List[str] = []
@@ -330,24 +414,32 @@ class PreprocessPipeline:
         total_ms = 0
         used_original = False
 
-        # 截图场景：完全跳过
-        if scene_type == SCENE_SCREENSHOT:
+        # 截图或用户主动跳过时，不做像素级预处理。
+        if scene_type == SCENE_SCREENSHOT or strategy == "skip":
+            readiness = assess_ocr_readiness(original)
             return {
                 "image": original,
                 "scene": scene_type,
-                "steps_applied": ["skipped: screenshot"],
+                "steps_applied": ["skipped: screenshot" if scene_type == SCENE_SCREENSHOT else "skipped: user"],
                 "timing_ms": {"total": 0},
                 "used_original": False,
-                "quality_before": 1.0,
-                "quality_after": 1.0,
+                "quality_before": readiness["score"],
+                "quality_after": readiness["score"],
+                "quality_metrics": readiness,
             }
 
         # 预处理前质量评估
         quality_before = assess_quality(original)
 
         # 获取该场景的步骤列表和参数
-        step_names = SCENE_PIPELINE_MAP.get(scene_type, [])
+        step_names = _steps_for_strategy(scene_type, strategy)
         params = SCENE_PARAMS.get(scene_type, {})
+        if options.get("clahe_clip_limit"):
+            params = {**params, "clahe_clip": float(options["clahe_clip_limit"])}
+        if options.get("denoise_method") == "median":
+            step_names = ["denoise_median" if s in {"denoise_bilateral", "denoise_nlm"} else s for s in step_names]
+        if options.get("denoise_method") == "bilateral":
+            step_names = ["denoise_bilateral" if s in {"denoise_median", "denoise_nlm"} else s for s in step_names]
 
         # 逐步执行
         for step_name in step_names:
@@ -380,7 +472,8 @@ class PreprocessPipeline:
         timing_ms["total"] = total_ms
 
         # 预处理后质量评估
-        quality_after = assess_quality(result)
+        readiness = assess_ocr_readiness(result)
+        quality_after = readiness["score"]
 
         # 如果预处理导致质量显著下降，回退到原图
         if quality_after < quality_before * 0.5 and quality_before > 0.3:
@@ -390,7 +483,8 @@ class PreprocessPipeline:
             result = original
             used_original = True
             steps_applied.append("fallback:original")
-            quality_after = quality_before
+            readiness = assess_ocr_readiness(result)
+            quality_after = readiness["score"]
 
         return {
             "image": result,
@@ -400,6 +494,7 @@ class PreprocessPipeline:
             "used_original": used_original,
             "quality_before": round(quality_before, 3),
             "quality_after": round(quality_after, 3),
+            "quality_metrics": readiness,
         }
 
     # ------------------------------------------------------------------

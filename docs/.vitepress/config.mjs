@@ -19,11 +19,6 @@ export default defineConfig({
     logo: '/logo.svg',
     siteTitle: 'VonishOCR',
     nav: [
-      { text: '产品', link: '/product/01-introduction' },
-      { text: '快速开始', link: '/quickstart/01-install' },
-      { text: '功能手册', link: '/features/01-scene-adaptive' },
-      { text: '设计系统', link: '/design/01-brand' },
-      { text: '开发文档', link: '/development/01-architecture' },
       { text: 'GitHub', link: 'https://github.com/evo-Vonish/vonish-ocr' }
     ],
 

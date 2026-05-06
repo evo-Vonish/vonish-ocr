@@ -100,14 +100,27 @@ export async function getPythonPort() {
 
 // OCR 单图识别
 export async function ocrRecognize(imageBase64, options = {}) {
+  const { preprocess_job_id, skip_preprocess, preprocess_strategy, scene_override, config_override, ...ocrOptions } = options || {}
   return _backendJson('/v1/ocr', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: imageBase64, options }),
+    body: JSON.stringify({ image: imageBase64, options: ocrOptions, preprocess_job_id, skip_preprocess, preprocess_strategy, scene_override, config_override }),
   })
 }
 
 // 批量 OCR 提交
+export async function preprocessImage(payload) {
+  return _backendJson('/v1/preprocess', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getPreprocessImageUrl(jobId, kind = 'processed') {
+  return _backendUrl(`/v1/preprocess/${jobId}/${kind}`)
+}
+
 export async function ocrBatch(images, options = {}) {
   return _backendJson('/v1/ocr/batch/json', {
     method: 'POST',

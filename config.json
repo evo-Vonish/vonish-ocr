@@ -40,6 +40,6 @@
   "include_diff": false,
   "batch_ai_refine": false,
   "redact_sensitive": false,
-  "power_mode": "balanced",
+  "power_mode": "beast",
   "preload_model": true
 }
