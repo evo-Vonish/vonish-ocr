@@ -1,7 +1,7 @@
 <template>
   <section class="theme-control">
-    <h4>主题风格</h4>
-    <div class="capsule-grid style-grid" role="radiogroup" aria-label="主题风格">
+    <h4>{{ t('config_theme_style') }}</h4>
+    <div class="capsule-grid style-grid" role="radiogroup" :aria-label="t('config_theme_style')">
       <button
         v-for="item in styles"
         :key="item.key"
@@ -11,12 +11,12 @@
         @click="themeStore.setThemeStyle(item.key)"
       >
         <span class="capsule-dot"></span>
-        <span>{{ item.label }}</span>
+        <span>{{ t(item.labelKey) }}</span>
       </button>
     </div>
 
-    <h4>显示模式</h4>
-    <div class="capsule-grid mode-grid" role="radiogroup" aria-label="显示模式">
+    <h4>{{ t('config_theme_mode') }}</h4>
+    <div class="capsule-grid mode-grid" role="radiogroup" :aria-label="t('config_theme_mode')">
       <button
         v-for="item in modes"
         :key="item.key"
@@ -26,13 +26,13 @@
         @click="themeStore.setThemeMode(item.key)"
       >
         <span class="capsule-dot"></span>
-        <span>{{ item.label }}</span>
+        <span>{{ t(item.labelKey) }}</span>
       </button>
     </div>
 
     <label class="follow-row">
       <input type="checkbox" :checked="themeStore.followSystem" @change="themeStore.setFollowSystem($event.target.checked)" />
-      <span>跟随系统</span>
+      <span>{{ t('config_follow_system') }}</span>
       <span class="follow-meta">{{ systemLabel }}</span>
     </label>
 
@@ -53,18 +53,19 @@
 <script setup>
 import { computed } from 'vue'
 import { useThemeStore } from '../stores/themeStore'
+import { t } from '../i18n'
 
 const themeStore = useThemeStore()
 
 const styles = [
-  { key: 'desk', label: '证据桌' },
-  { key: 'mono', label: '黑白审阅' },
-  { key: 'hc', label: '高对比' },
+  { key: 'desk', labelKey: 'theme_style_desk' },
+  { key: 'mono', labelKey: 'theme_style_mono' },
+  { key: 'hc', labelKey: 'theme_style_hc' },
 ]
 
 const modes = [
-  { key: 'dark', label: '深色' },
-  { key: 'light', label: '浅色' },
+  { key: 'dark', labelKey: 'theme_mode_dark' },
+  { key: 'light', labelKey: 'theme_mode_light' },
 ]
 
 const names = {

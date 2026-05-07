@@ -1,0 +1,496 @@
+/* =========================================================
+   VonishOCR UI Refit Layer
+   目标：用二维主题变量统一全局 UI、按钮、表单、弹窗和读数。
+   说明：此文件最后加载，专门收束历史组件中的零散按钮类。
+   ========================================================= */
+
+:root {
+  --v-button-h: 36px;
+  --v-button-h-sm: 32px;
+  --v-button-h-lg: 40px;
+  --v-input-h: 36px;
+  --v-line: var(--v-border-width, 1px);
+}
+
+html {
+  background: var(--v-bg);
+  transition:
+    background-color 300ms var(--ease-cut),
+    color 200ms var(--ease-cut);
+}
+
+body,
+#app {
+  background:
+    linear-gradient(transparent, transparent),
+    var(--v-bg);
+  color: var(--v-text);
+}
+
+::selection {
+  background: var(--v-selection-bg, var(--v-accent-24));
+  color: var(--v-text);
+}
+
+/* ---------- Buttons ---------- */
+button,
+.v-state-tab,
+.v-export-btn,
+.v-btn,
+.v-btn-primary,
+.v-btn-secondary,
+.v-btn-danger,
+.v-btn-ghost,
+.v-btn-icon,
+.text-btn,
+.export-btn,
+.state-tab,
+.export-tab,
+.start-btn,
+.icon-btn.icon-btn,
+.return-btn.return-btn,
+.secondary-btn.secondary-btn,
+.primary-btn.primary-btn,
+.danger-btn.danger-btn,
+.ghost-btn.ghost-btn,
+.save-scheme.save-scheme,
+.save-btn.save-btn,
+.secondary.secondary,
+.wide-action.wide-action,
+.close-btn.close-btn,
+.port-btn.port-btn,
+.filter-pill.filter-pill,
+.profile-pill.profile-pill,
+.capsule.capsule,
+.theme-capsule.theme-capsule,
+.scheme-card.scheme-card,
+.create-entry.create-entry {
+  min-height: var(--v-button-h);
+  border: var(--v-line) solid var(--v-border);
+  border-radius: var(--r3);
+  background: transparent;
+  color: var(--v-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background-color var(--dur-base) var(--ease-cut),
+    border-color var(--dur-base) var(--ease-cut),
+    color var(--dur-base) var(--ease-cut),
+    box-shadow var(--dur-base) var(--ease-cut),
+    transform var(--dur-fast) var(--ease-cut);
+}
+
+button:hover:not(:disabled),
+.v-state-tab:hover:not(:disabled),
+.text-btn:hover:not(:disabled),
+.state-tab:hover:not(:disabled),
+.export-tab:hover:not(:disabled),
+.icon-btn.icon-btn:hover:not(:disabled),
+.return-btn.return-btn:hover:not(:disabled),
+.secondary-btn.secondary-btn:hover:not(:disabled),
+.ghost-btn.ghost-btn:hover:not(:disabled),
+.secondary.secondary:hover:not(:disabled),
+.wide-action.wide-action:hover:not(:disabled),
+.filter-pill.filter-pill:hover:not(:disabled),
+.profile-pill.profile-pill:hover:not(:disabled),
+.capsule.capsule:hover:not(:disabled),
+.theme-capsule.theme-capsule:hover:not(:disabled),
+.scheme-card.scheme-card:hover:not(:disabled),
+.create-entry.create-entry:hover:not(:disabled) {
+  color: var(--v-text);
+  border-color: var(--v-border-strong);
+  background: var(--v-accent-08);
+  transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+button:disabled,
+.is-disabled,
+.v-state-tab:disabled,
+.v-export-btn:disabled,
+.text-btn:disabled,
+.export-btn:disabled,
+.state-tab:disabled,
+.export-tab:disabled,
+.start-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.v-export-btn,
+.v-btn-primary,
+.primary-btn.primary-btn,
+.save-btn.save-btn,
+.save-scheme.save-scheme,
+.start-btn.start-btn,
+.export-btn.export-btn {
+  min-height: var(--v-button-h-lg);
+  background: var(--v-accent);
+  border-color: var(--v-accent);
+  color: var(--v-coal);
+  font-weight: var(--fw-semibold);
+}
+
+.v-export-btn:hover:not(:disabled),
+.v-btn-primary:hover:not(:disabled),
+.primary-btn.primary-btn:hover:not(:disabled),
+.save-btn.save-btn:hover:not(:disabled),
+.save-scheme.save-scheme:hover:not(:disabled),
+.start-btn.start-btn:hover:not(:disabled),
+.export-btn.export-btn:hover:not(:disabled) {
+  background: var(--v-accent);
+  border-color: var(--v-accent);
+  color: var(--v-coal);
+  box-shadow: var(--glow-soft);
+}
+
+.v-btn-secondary,
+.secondary-btn.secondary-btn,
+.secondary.secondary,
+.ghost-btn.ghost-btn,
+.v-btn-ghost {
+  background: transparent;
+  color: var(--v-text-muted);
+  border-color: var(--v-border);
+}
+
+.v-btn-danger,
+.danger-btn.danger-btn {
+  background: transparent;
+  color: var(--v-error);
+  border-color: var(--v-error);
+}
+
+.v-btn-danger:hover:not(:disabled),
+.danger-btn.danger-btn:hover:not(:disabled) {
+  background: var(--v-error-dim);
+  color: var(--v-error);
+  border-color: var(--v-error);
+}
+
+.v-state-tab,
+.state-tab.state-tab,
+.export-tab.export-tab,
+.filter-pill.filter-pill {
+  height: var(--v-button-h);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  background: transparent;
+  color: var(--v-text-muted);
+}
+
+.v-state-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.v-state-tab.is-active,
+.v-state-tab.active,
+.state-tab.active,
+.state-tab.is-active,
+.export-tab.active,
+.filter-pill.active,
+.profile-pill.active,
+.capsule.active,
+.theme-capsule.active,
+.scheme-card.active,
+.v-btn--active {
+  border-color: var(--v-accent);
+  color: var(--v-text);
+  background: var(--v-accent-08);
+  box-shadow: var(--glow-soft);
+}
+
+.v-btn-icon,
+.icon-btn.icon-btn,
+.close-btn.close-btn {
+  min-width: var(--v-button-h);
+  padding-inline: var(--s2);
+}
+
+/* ---------- Forms ---------- */
+input,
+select,
+textarea,
+.port-input.port-input {
+  min-height: var(--v-input-h);
+  border: var(--v-line) solid var(--v-border);
+  border-radius: var(--r3);
+  background: var(--v-bg);
+  color: var(--v-text);
+  caret-color: var(--v-accent);
+  font-family: var(--font-body);
+  transition:
+    border-color var(--dur-base) var(--ease-cut),
+    background-color var(--dur-base) var(--ease-cut),
+    color var(--dur-base) var(--ease-cut),
+    box-shadow var(--dur-base) var(--ease-cut);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--v-border-strong);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: var(--s4);
+  height: var(--s4);
+  min-height: 0;
+  accent-color: var(--v-accent);
+}
+
+/* ---------- Panels / cards / tables ---------- */
+.v-panel,
+.v-panel-raised,
+.v-panel-rail,
+.v-card,
+.v-result-col,
+.v-review-section,
+.v-confidence-panel,
+.metric-card.metric-card,
+.console-panel.console-panel,
+.resident-card.resident-card,
+.request-table.request-table,
+.queue-strip.queue-strip,
+.system-actions.system-actions,
+.nameplate.nameplate,
+.drawer.drawer,
+.drawer-body section,
+.ai-center .scheme-form,
+.console-dialog.console-dialog,
+.v-topbar,
+.v-left-rail,
+.v-workbench,
+.v-review-lamp,
+.v-bottombar {
+  border-width: var(--v-line);
+  border-color: var(--v-border);
+  background: var(--v-rail);
+  color: var(--v-text);
+}
+
+.v-workbench,
+.v-result-col,
+.console-panel.console-panel,
+.drawer-body section,
+.v-panel {
+  background: var(--v-panel);
+}
+
+.v-panel-raised,
+.v-confidence-panel,
+.metric-card.metric-card,
+.resident-card.resident-card,
+.request-table.request-table {
+  background: var(--v-panel-raised);
+}
+
+.v-card,
+.scheme-card.scheme-card,
+.model-card,
+.upload-row,
+.request-row {
+  transition:
+    transform var(--dur-base) var(--ease-cut),
+    border-color var(--dur-base) var(--ease-cut),
+    background-color var(--dur-base) var(--ease-cut),
+    box-shadow var(--dur-base) var(--ease-cut);
+}
+
+.v-card:hover,
+.scheme-card.scheme-card:hover,
+.model-card:hover,
+.upload-row:hover {
+  transform: translateY(-1px);
+  border-color: var(--v-border-strong);
+}
+
+.v-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+
+.v-review-section + .v-review-section,
+.v-review-section + .v-confidence-panel,
+.v-confidence-panel + .v-review-section {
+  margin-top: var(--s3);
+}
+
+.v-confidence-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+}
+
+.v-confidence-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: 1.4;
+  color: var(--v-text-muted);
+}
+
+.v-confidence-value {
+  color: var(--v-accent);
+}
+
+.v-confidence-error {
+  color: var(--v-error);
+}
+
+.v-api-url {
+  margin-top: var(--s2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--v-accent);
+}
+
+.v-api-desc {
+  margin-top: var(--s1);
+  font-size: var(--fs-caption);
+  color: var(--v-text-muted);
+  line-height: 1.5;
+}
+
+/* ---------- Evidence paper / low confidence ---------- */
+.v-preview-stage,
+.paper-stage,
+.paper-sheet,
+.v-evidence-paper,
+.v-paper-surface {
+  background: var(--v-paper);
+  color: var(--v-coal);
+  border: var(--v-line) solid var(--v-border);
+  border-radius: var(--r3);
+}
+
+.v-low-confidence,
+.low-confidence {
+  border: var(--v-line) solid var(--v-accent);
+  background: var(--v-accent-16);
+  color: inherit;
+  border-radius: var(--r2);
+  padding-inline: 3px;
+}
+
+.v-low-confidence:hover,
+.low-confidence:hover {
+  background: var(--v-accent-32);
+}
+
+.v-low-confidence.is-confirmed,
+.low-confidence.is-confirmed {
+  border-color: color-mix(in srgb, var(--v-paper) 18%, transparent);
+  background: transparent;
+}
+
+/* ---------- Readouts / terminal ---------- */
+.terminal.terminal {
+  background: var(--v-coal);
+  color: var(--v-paper);
+  border-color: var(--v-border);
+}
+
+.v-readout,
+.v-readout-strong,
+.v-readout-accent,
+.mono,
+.request-table,
+.queue-strip,
+.nameplate,
+.v-card-meta {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar-thumb {
+  background: var(--v-scroll-thumb, var(--v-border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--v-scroll-hover, var(--v-accent));
+}
+
+/* ---------- Theme-specific promises ---------- */
+[data-theme-style="mono"] .v-export-btn,
+[data-theme-style="mono"] .v-btn-primary,
+[data-theme-style="mono"] .primary-btn,
+[data-theme-style="mono"] .save-btn,
+[data-theme-style="mono"] .save-scheme,
+[data-theme-style="mono"] .start-btn,
+[data-theme-style="mono"] .export-btn {
+  background: var(--v-accent);
+  border-color: var(--v-accent);
+  color: var(--v-bg);
+}
+
+[data-theme-style="mono"] .v-btn-danger,
+[data-theme-style="mono"] .danger-btn,
+[data-theme-style="mono"] .v-delete-mark,
+[data-theme-style="mono"] .v-insert-mark,
+[data-theme-style="mono"] .v-format-mark {
+  color: currentColor;
+  border-color: currentColor;
+}
+
+[data-theme-style="hc"] button,
+[data-theme-style="hc"] input,
+[data-theme-style="hc"] select,
+[data-theme-style="hc"] textarea,
+[data-theme-style="hc"] .v-card,
+[data-theme-style="hc"] .v-panel,
+[data-theme-style="hc"] .v-result-col,
+[data-theme-style="hc"] .v-review-section,
+[data-theme-style="hc"] .metric-card,
+[data-theme-style="hc"] .console-panel,
+[data-theme-style="hc"] .drawer,
+[data-theme-style="hc"] .drawer-body section {
+  border-width: 2px !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+[data-theme-style="hc"] .v-export-btn,
+[data-theme-style="hc"] .primary-btn,
+[data-theme-style="hc"] .save-btn,
+[data-theme-style="hc"] .save-scheme,
+[data-theme-style="hc"] .start-btn,
+[data-theme-style="hc"] .export-btn {
+  background: var(--v-accent);
+  color: var(--v-bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,26 @@
+/* VonishOCR desk-light：只覆盖证据桌浅色模式的 CSS 变量。 */
+[data-theme-style="desk"][data-theme-mode="light"],
+[data-theme-mode="light"]:not([data-theme-style]) {
+  --v-bg: #F3EFE4;
+  --v-rail: #E7E1D0;
+  --v-panel: #DDD7C8;
+  --v-panel-raised: color-mix(in srgb, #DDD7C8 80%, #E7E1D0 20%);
+  --v-border: #C5BFB3;
+  --v-border-strong: #A39B8F;
+  --v-text: #11110F;
+  --v-text-muted: #6B6560;
+  --v-text-faint: #A39B8F;
+  --v-accent: #1A3D32;
+  --v-accent-08: #1A3D3214;
+  --v-accent-16: #1A3D3229;
+  --v-accent-32: #1A3D3252;
+  --v-accent-dim: #8FF6D2;
+  --v-coal: #11110F;
+  --v-paper: #E7E1D0;
+  --v-error: #B85A50;
+  --v-error-dim: #3D1F1A;
+  --v-insert: #2E8B57;
+  --v-format: #C9A03F;
+  --glow-soft: 0 0 12px var(--v-accent-16);
+  --glow-active: 0 0 18px var(--v-accent-32);
+}

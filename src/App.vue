@@ -1,36 +1,41 @@
 <template>
   <BackendConsole v-if="showBackendConsole" @close="showBackendConsole = false" />
   <DocsViewer v-else-if="showDocs" @close="showDocs = false" />
+  <CaseVault v-else-if="showVault" @close="showVault = false" />
   <ResponsiveShell v-else>
     <template #topbar>
       <div class="brand-block">
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
           <div class="brand-title v-title">VonishOCR</div>
-          <div class="brand-sub v-micro">LOCAL EVIDENCE DESK</div>
+          <div class="brand-sub v-micro">{{ t('brand_subtitle') }}</div>
         </div>
       </div>
       <div class="top-readouts">
-        <span class="v-readout-accent">LOCAL HELD</span>
-        <span class="v-readout">MODEL {{ modelLabel }}</span>
-        <span class="v-readout">QUEUE {{ queueText }}</span>
+        <span class="v-readout-accent">{{ t('topbar_local_held') }}</span>
+        <span class="v-readout">{{ t('topbar_model') }} {{ modelLabel }}</span>
+        <span class="v-readout">{{ t('topbar_queue') }} {{ queueText }}</span>
       </div>
       <div class="top-actions">
-        <button class="icon-btn" type="button" :title="`显示模式：${themeButtonLabel}`" @click="cycleTheme">
+        <button class="icon-btn" type="button" :title="t('topbar_theme_title').replace('{mode}', themeButtonLabel)" @click="cycleTheme">
           <span class="theme-icon" aria-hidden="true"></span>
           <span>{{ themeButtonLabel }}</span>
         </button>
-        <button class="icon-btn" type="button" title="后端控制台" @click="showBackendConsole = true">
+        <button class="icon-btn" type="button" :title="t('topbar_backend_title')" @click="showBackendConsole = true">
           <span class="console-icon" aria-hidden="true"></span>
-          <span>后端控制台</span>
+          <span>{{ t('topbar_backend_console') }}</span>
         </button>
-        <button class="icon-btn" type="button" title="打开项目文档" @click="showDocs = true">
+        <button class="icon-btn" type="button" :title="t('topbar_docs_title')" @click="showDocs = true">
           <span class="docs-icon" aria-hidden="true"></span>
-          <span>文档</span>
+          <span>{{ t('topbar_docs') }}</span>
         </button>
-        <button class="icon-btn" type="button" title="配置" @click="showConfig = true">
+        <button class="icon-btn" type="button" title="案卷库" @click="showVault = true">
+          <span class="vault-icon" aria-hidden="true"></span>
+          <span>案卷库</span>
+        </button>
+        <button class="icon-btn" type="button" :title="t('topbar_settings_title')" @click="showConfig = true">
           <span class="gear-icon" aria-hidden="true"></span>
-          <span>配置</span>
+          <span>{{ t('topbar_settings') }}</span>
         </button>
       </div>
     </template>
@@ -41,61 +46,17 @@
 
     <template #workbench>
       <UploadZone v-if="!hasResult && !hasError" variant="dropzone" />
-      <ResultPanel v-else />
+      <OcrResult v-else />
     </template>
 
     <template #right-review>
-      <div class="v-review-head">
-        <div>
-          <div class="v-review-status">{{ reviewStatus }}</div>
-          <div class="review-title v-title">复核灯</div>
-        </div>
-        <span class="lamp-dot" :class="{ on: hasResult || hasError }"></span>
-      </div>
-      <div class="v-review-section">
-        <div class="section-label">CURRENT CASE</div>
-        <div class="case-name">{{ taskStore.currentTask?.name || '等待证据文件' }}</div>
-        <div class="case-meta v-mono">{{ currentTaskMeta }}</div>
-      </div>
-      <div v-if="preprocessReview" class="v-review-section">
-        <div class="section-label">PREPROCESS</div>
-        <div v-if="preprocessReview.url || preprocessReview.originalUrl" class="review-prep-strip">
-          <img v-if="preprocessReview.originalUrl" :src="preprocessReview.originalUrl" alt="" />
-          <img v-if="preprocessReview.url" :src="preprocessReview.url" alt="" />
-        </div>
-        <div class="case-name">{{ preprocessReview.scene }} · {{ preprocessReview.confidence }}</div>
-        <div class="case-meta v-mono">{{ preprocessReview.elapsed }} · {{ preprocessReview.strategy }}</div>
-        <button v-if="preprocessReview.url" class="text-link" type="button" @click="showPreprocessModal = true">查看对比图</button>
-      </div>
-      <div class="v-confidence-panel">
-        <div class="v-confidence-row">
-          <span>OCR CONF</span>
-          <span :class="confidenceClass">{{ confidenceText }}</span>
-        </div>
-        <div class="v-confidence-row">
-          <span>SCENE</span>
-          <span>{{ sceneText }}</span>
-        </div>
-        <div class="v-confidence-row">
-          <span>DIFF</span>
-          <span>{{ diffCount }}</span>
-        </div>
-      </div>
-      <div v-if="hasError" class="v-review-section error-block">
-        <div class="section-label">ERROR</div>
-        <div class="error-text">{{ currentError.message }}</div>
-      </div>
-      <div class="v-review-section">
-        <div class="section-label">LOCAL API</div>
-        <div class="v-api-url">127.0.0.1 : sidecar</div>
-        <div class="v-api-desc">本地推理优先，AI 修复可选。</div>
-      </div>
+      <AuditLamp />
     </template>
 
     <template #bottombar>
-      <span class="v-readout-accent">LOCAL HELD</span>
-      <span class="v-readout-strong">MODEL {{ modelLabel }}</span>
-      <span class="v-readout">QUEUE {{ queueText }}</span>
+      <span class="v-readout-accent">{{ t('bottom_local_held') }}</span>
+      <span class="v-readout-strong">{{ t('bottom_model') }} {{ modelLabel }}</span>
+      <span class="v-readout">{{ t('bottom_queue') }} {{ queueText }}</span>
       <span class="v-readout">{{ reviewStatus }}</span>
     </template>
 
@@ -103,7 +64,7 @@
       <div class="mobile-toolbar">
         <div class="toolbar-scroll">
           <div v-if="taskStore.tasks.length" class="toolbar-section">
-            <span class="toolbar-label">队列</span>
+            <span class="toolbar-label">{{ t('mobile_queue_label') }}</span>
             <div class="toolbar-chips">
               <div v-for="t in taskStore.tasks.slice(0, 10)" :key="t.id" class="toolbar-chip" :class="{ active: t.id === taskStore.currentTask?.id }" @click="taskStore.currentTaskId = t.id">
                 {{ t.name?.slice(0, 8) || t.id }}
@@ -116,19 +77,10 @@
   </ResponsiveShell>
 
   <ConfigDrawer v-model:visible="showConfig" @open-ai-center="showAIProviderCenter = true" />
-  <div v-if="showPreprocessModal && preprocessReview" class="modal-backdrop" @click="showPreprocessModal = false">
-    <div class="preprocess-modal" @click.stop>
-      <button class="modal-close" type="button" @click="showPreprocessModal = false">×</button>
-      <div class="section-label">PREPROCESS COMPARE</div>
-      <div class="modal-images">
-        <img v-if="preprocessReview.originalUrl" :src="preprocessReview.originalUrl" alt="" />
-        <img v-if="preprocessReview.url" :src="preprocessReview.url" alt="" />
-      </div>
-    </div>
-  </div>
   <AIProviderModal v-model:visible="showAIProviderCenter" />
   <ToastStack />
   <DialogSystem />
+  <OobeShell v-model:visible="showOobe" @complete="onOobeComplete" />
 </template>
 
 <script setup>
@@ -138,14 +90,18 @@ import { useConfigStore } from './stores/configStore'
 import { useThemeStore } from './stores/themeStore'
 import UploadZone from './components/UploadZone.vue'
 import EvidenceQueue from './components/EvidenceQueue.vue'
-import ResultPanel from './components/ResultPanel.vue'
+import OcrResult from './components/OcrResult.vue'
+import AuditLamp from './components/AuditLamp.vue'
 import BackendConsole from './components/BackendConsole.vue'
 import DocsViewer from './components/DocsViewer.vue'
+import CaseVault from './views/CaseVault.vue'
 import ConfigDrawer from './components/ConfigDrawer.vue'
 import AIProviderModal from './components/AIProviderModal.vue'
 import ToastStack from './components/ToastStack.vue'
 import DialogSystem from './components/DialogSystem.vue'
 import ResponsiveShell from './layouts/ResponsiveShell.vue'
+import OobeShell from './components/OobeShell.vue'
+import { t, setLang } from './i18n'
 
 const taskStore = useTaskStore()
 const configStore = useConfigStore()
@@ -154,10 +110,12 @@ const showConfig = ref(false)
 const showAIProviderCenter = ref(false)
 const showBackendConsole = ref(false)
 const showDocs = ref(false)
+const showVault = ref(false)
 const showPreprocessModal = ref(false)
+const showOobe = ref(false)
 
 const themeButtonLabel = computed(() => {
-  return themeStore.resolvedMode === 'light' ? '白' : '黑'
+  return themeStore.resolvedMode === 'light' ? t('topbar_theme_light') : t('topbar_theme_dark')
 })
 
 const currentResult = computed(() => {
@@ -192,9 +150,9 @@ const preprocessReview = computed(() => {
 
 const modelLabel = computed(() => {
   const id = configStore.config.ocr_model || 'rapidocr-mobile-cn'
-  if (id.includes('rapidocr')) return '极速'
-  if (id.includes('cnocr')) return '均衡'
-  if (id.includes('paddle')) return '精度'
+  if (id.includes('rapidocr')) return t('model_ultra')
+  if (id.includes('cnocr')) return t('model_standard')
+  if (id.includes('paddle')) return t('model_pro')
   return id
 })
 
@@ -236,18 +194,42 @@ function cycleTheme() {
   themeStore.setThemeMode(themeStore.resolvedMode === 'light' ? 'dark' : 'light')
 }
 
-onMounted(() => {
+onMounted(async () => {
   themeStore.loadTheme()
   themeStore.watchSystemTheme()
   taskStore.restorePersisted()
-  configStore.loadConfig()
+  await configStore.loadConfig()
   configStore.loadModels()
+
+  if (!configStore.config.oobe_completed) {
+    showOobe.value = true
+  }
+
   const splash = document.getElementById('splash')
   if (splash) {
     splash.classList.add('hidden')
     setTimeout(() => { splash.style.display = 'none' }, 400)
   }
 })
+
+async function onOobeComplete(data) {
+  themeStore.setThemeStyle(data.themeStyle)
+  themeStore.setThemeMode(data.themeMode)
+  setLang(data.lang)
+
+  const activeModel = data.models.pro.active ? 'onnxtr-standard'
+    : data.models.standard.active ? 'cnocr-standard-cn'
+    : 'rapidocr-mobile-cn'
+
+  await configStore.updateConfig({
+    oobe_completed: true,
+    tutorial_completed: data.tutorialCompleted,
+    power_mode: data.performance,
+    ocr_model: activeModel
+  })
+
+  showOobe.value = false
+}
 </script>
 
 <style scoped>
@@ -402,6 +384,31 @@ onMounted(() => {
 
 .docs-icon::before { top: 5px; }
 .docs-icon::after { top: 9px; }
+
+.vault-icon {
+  width: 15px; height: 16px;
+  border: 1px solid currentColor;
+  border-radius: var(--r1);
+  position: relative;
+}
+
+.vault-icon::before {
+  content: "";
+  position: absolute;
+  left: 3px; right: 3px;
+  top: -2px;
+  height: 1px;
+  background: currentColor;
+}
+
+.vault-icon::after {
+  content: "";
+  position: absolute;
+  left: 4px; right: 4px;
+  bottom: 3px;
+  height: 1px;
+  background: var(--v-accent);
+}
 
 /* ── 复核灯内容 ── */
 .v-review-head {

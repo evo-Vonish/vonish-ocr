@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from api.routes import router
+from api.vault import router as vault_router
 from config.settings import ConfigManager
 
 _is_sidecar = False
@@ -32,12 +33,24 @@ async def lifespan(app: FastAPI):
         # 根据功耗模式决定 worker 数量
         cfg = app.state.config_manager.load()
         power_mode = getattr(cfg, "power_mode", "balanced")
-        worker_map = {"beast": 8, "balanced": 4, "eco": 1}
-        concurrency_map = {"beast": 12, "balanced": 3, "eco": 2}
-        max_workers = worker_map.get(power_mode, 4)
-        concurrency = concurrency_map.get(power_mode, 3)
+        root = Path(__file__).parent.parent
+        from performance.hardware_probe import full_hardware_probe
+        from performance.auto_tune import compute_runtime_policy
+        from performance.runtime_policy import RuntimePolicyController
+
+        hardware_probe = full_hardware_probe(root=root, models_dir=root / "models")
+        runtime_policy = compute_runtime_policy(
+            hardware_probe,
+            mode=power_mode,
+            overrides=getattr(cfg, "performance_overrides", {}) or {},
+        )
+        app.state.hardware_probe = hardware_probe
+        app.state.runtime_policy = RuntimePolicyController(runtime_policy.to_dict())
+        max_workers = runtime_policy.max_workers
+        concurrency = runtime_policy.concurrency
 
         app.state.queue = LocalQueue(max_workers=max_workers, concurrency=concurrency)
+        app.state.queue.set_runtime_limits(concurrency, max_workers=max_workers, policy=app.state.runtime_policy)
         app.state.model_manager = ModelManager()
     except Exception as e:
         logging.warning(f"初始化 queue/model_manager 失败: {e}")
@@ -281,6 +294,7 @@ app.add_middleware(
 )
 app.include_router(router, prefix="/v1")
 app.include_router(router)
+app.include_router(vault_router)
 
 # 挂载 VitePress 文档站，供前端 iframe 内嵌
 _docs_dist = Path(__file__).parent.parent / "docs" / ".vitepress" / "dist"

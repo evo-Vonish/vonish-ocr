@@ -34,22 +34,39 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { getPythonPort } from '../api/tauri_ipc'
+import { useThemeStore } from '../stores/themeStore'
 
 defineEmits(['close'])
 
 const docsFrame = ref(null)
 const loading = ref(true)
 const docsUrl = ref('about:blank')
+const docsPort = ref(0)
+const themeStore = useThemeStore()
+
+const themedDocsUrl = computed(() => {
+  if (!docsPort.value) return 'about:blank'
+  const style = encodeURIComponent(themeStore.resolvedStyle || 'desk')
+  const mode = encodeURIComponent(themeStore.resolvedMode || 'dark')
+  return `http://127.0.0.1:${docsPort.value}/reference/?themeStyle=${style}&themeMode=${mode}`
+})
 
 onMounted(async () => {
   try {
-    const port = await getPythonPort()
-    docsUrl.value = `http://127.0.0.1:${port}/reference/`
+    docsPort.value = await getPythonPort()
+    docsUrl.value = themedDocsUrl.value
   } catch (e) {
     docsUrl.value = 'about:blank'
     console.error('获取后端端口失败，无法加载文档站:', e)
+  }
+})
+
+watch(themedDocsUrl, (url) => {
+  if (url !== 'about:blank') {
+    loading.value = true
+    docsUrl.value = url
   }
 })
 

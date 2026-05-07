@@ -5,10 +5,10 @@
         <aside class="drawer">
           <header class="drawer-header">
             <div>
-              <div class="drawer-kicker">LOCAL SETTINGS</div>
-              <h3 class="drawer-title v-title">证据桌配置</h3>
+              <div class="drawer-kicker">{{ t('config_local_settings') }}</div>
+              <h3 class="drawer-title v-title">{{ t('config_title') }}</h3>
             </div>
-            <button class="close-btn" type="button" title="关闭" @click="close">
+            <button class="close-btn" type="button" :title="t('btn_close')" @click="close">
               <span aria-hidden="true"></span>
             </button>
           </header>
@@ -19,82 +19,90 @@
             </section>
 
             <section>
-              <h4>OCR 模型</h4>
-              <select v-model="config.ocr_model">
-                <option value="rapidocr-mobile-cn">极速 · RapidOCR Mobile</option>
-                <option value="cnocr-standard-cn">均衡 · CnOCR</option>
-              </select>
-            </section>
-
-            <section>
-              <h4>预处理</h4>
-              <label><input type="checkbox" v-model="config.preprocess" /> 启用预处理</label>
-              <label><input type="checkbox" v-model="config.auto_rotate" /> 自动旋转</label>
-              <label><input type="checkbox" v-model="config.perspective_correct" /> 透视矫正</label>
-              <label><input type="checkbox" v-model="config.scene_detect" /> 场景检测</label>
-              <div class="strategy-row">
-                <span>默认强度</span>
-                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'light' }" @click="config.preprocess_config.default_strategy = 'light'">轻量</button>
-                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'standard' }" @click="config.preprocess_config.default_strategy = 'standard'">标准</button>
-                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'heavy' }" @click="config.preprocess_config.default_strategy = 'heavy'">深度</button>
+              <h4>{{ t('config_language') }}</h4>
+              <div class="v-state-tabs">
+                <button class="v-state-tab" type="button" :class="{ 'is-active': currentLang === 'zh' }" @click="setLang('zh')">{{ t('config_lang_zh') }}</button>
+                <button class="v-state-tab" type="button" :class="{ 'is-active': currentLang === 'en' }" @click="setLang('en')">{{ t('config_lang_en') }}</button>
               </div>
-              <label><input type="checkbox" v-model="config.preprocess_config.show_preview" /> 显示预处理对比图</label>
-              <label><input type="checkbox" v-model="config.preprocess_config.fallback_to_original" /> 失败时自动回退原图</label>
-              <label>CLAHE clipLimit <input class="inline-number" type="number" min="1" max="8" step="0.5" v-model.number="config.preprocess_config.advanced.clahe_clip_limit" /></label>
             </section>
 
             <section>
-              <h4>AI 修复</h4>
-              <label><input type="checkbox" v-model="config.ai.enabled" /> 启用 AI 修复</label>
+              <h4>{{ t('config_ocr_model') }}</h4>
+              <select v-model="config.ocr_model">
+                <option value="rapidocr-mobile-cn">{{ t('config_model_ultra') }}</option>
+                <option value="cnocr-standard-cn">{{ t('config_model_standard') }}</option>
+              </select>
+            </section>
+
+            <section>
+              <h4>{{ t('config_preprocess') }}</h4>
+              <label><input type="checkbox" v-model="config.preprocess" /> {{ t('config_enable_preprocess') }}</label>
+              <label><input type="checkbox" v-model="config.auto_rotate" /> {{ t('config_auto_rotate') }}</label>
+              <label><input type="checkbox" v-model="config.perspective_correct" /> {{ t('config_perspective') }}</label>
+              <label><input type="checkbox" v-model="config.scene_detect" /> {{ t('config_scene_detect') }}</label>
+              <div class="strategy-row">
+                <span>{{ t('config_default_intensity') }}</span>
+                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'light' }" @click="config.preprocess_config.default_strategy = 'light'">{{ t('config_intensity_light') }}</button>
+                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'standard' }" @click="config.preprocess_config.default_strategy = 'standard'">{{ t('config_intensity_standard') }}</button>
+                <button type="button" :class="{ active: config.preprocess_config.default_strategy === 'heavy' }" @click="config.preprocess_config.default_strategy = 'heavy'">{{ t('config_intensity_deep') }}</button>
+              </div>
+              <label><input type="checkbox" v-model="config.preprocess_config.show_preview" /> {{ t('config_show_compare') }}</label>
+              <label><input type="checkbox" v-model="config.preprocess_config.fallback_to_original" /> {{ t('config_fallback_original') }}</label>
+              <label>{{ t('config_clahe_limit') }} <input class="inline-number" type="number" min="1" max="8" step="0.5" v-model.number="config.preprocess_config.advanced.clahe_clip_limit" /></label>
+            </section>
+
+            <section>
+              <h4>{{ t('config_ai_refiner') }}</h4>
+              <label><input type="checkbox" v-model="config.ai.enabled" /> {{ t('config_enable_ai') }}</label>
               <select v-model="config.ai.trigger_mode">
-                <option value="auto">低置信度自动触发，小于 85%</option>
-                <option value="always">每张图都修复</option>
-                <option value="manual">仅手动触发</option>
+                <option value="auto">{{ t('config_ai_trigger_auto') }}</option>
+                <option value="always">{{ t('config_ai_trigger_always') }}</option>
+                <option value="manual">{{ t('config_ai_trigger_manual') }}</option>
               </select>
-              <label><input type="checkbox" v-model="config.batch_ai_refine" /> 批量识别也执行 AI 修复</label>
-              <p class="hint-text">批量 AI 修复会逐图调用当前方案，速度和费用都更高，默认关闭。</p>
-              <button class="wide-action" type="button" @click="emit('open-ai-center')">打开 API 方案中心</button>
+              <label><input type="checkbox" v-model="config.batch_ai_refine" /> {{ t('config_batch_ai_refine') }}</label>
+              <p class="hint-text">{{ t('config_batch_ai_hint') }}</p>
+              <button class="wide-action" type="button" @click="emit('open-ai-center')">{{ t('config_open_ai_center') }}</button>
             </section>
 
             <section>
-              <h4>输出选项</h4>
+              <h4>{{ t('config_output') }}</h4>
               <select v-model="config.output_mode">
-                <option value="raw">原始</option>
-                <option value="polished">精修</option>
-                <option value="dual">双版本</option>
-                <option value="smart">智能</option>
+                <option value="raw">{{ t('config_output_raw') }}</option>
+                <option value="polished">{{ t('config_output_polished') }}</option>
+                <option value="dual">{{ t('config_output_dual') }}</option>
+                <option value="smart">{{ t('config_output_smart') }}</option>
               </select>
-              <label><input type="checkbox" v-model="config.include_diff" /> 包含修改记录</label>
+              <label><input type="checkbox" v-model="config.include_diff" /> {{ t('config_include_diff') }}</label>
             </section>
 
             <section>
-              <h4>启动设置</h4>
-              <label><input type="checkbox" v-model="config.preload_model" /> 启动时预加载默认模型</label>
-              <p class="hint-text">开启后应用启动会自动加载模型，首次识别无需等待。</p>
+              <h4>{{ t('config_startup') }}</h4>
+              <label><input type="checkbox" v-model="config.preload_model" /> {{ t('config_preload_model') }}</label>
+              <p class="hint-text">{{ t('config_preload_hint') }}</p>
             </section>
 
             <section>
-              <h4>系统通知</h4>
-              <label><input type="checkbox" v-model="config.notify_enabled" /> 窗口最小化时弹出系统通知</label>
-              <p class="hint-text">仅在窗口最小化到任务栏时，批量识别完成后弹出 Windows 原生通知。</p>
-              <button class="wide-action" type="button" @click="testNativeNotify">测试系统通知</button>
+              <h4>{{ t('config_notify') }}</h4>
+              <label><input type="checkbox" v-model="config.notify_enabled" /> {{ t('config_notify_enabled') }}</label>
+              <p class="hint-text">{{ t('config_notify_hint') }}</p>
+              <button class="wide-action" type="button" @click="testNativeNotify">{{ t('config_test_notify') }}</button>
             </section>
 
             <section>
-              <h4>性能模式</h4>
+              <h4>{{ t('config_performance') }}</h4>
               <select v-model="config.power_mode">
-                <option value="beast">全速 · 占用更多资源</option>
-                <option value="balanced">均衡 · 推荐</option>
-                <option value="eco">省电 · 低功耗</option>
+                <option value="beast">{{ t('config_power_beast') }}</option>
+                <option value="balanced">{{ t('config_power_balanced') }}</option>
+                <option value="eco">{{ t('config_power_eco') }}</option>
               </select>
-              <p class="hint-text">离电使用时建议切换为省电模式。</p>
+              <p class="hint-text">{{ t('config_power_hint') }}</p>
             </section>
           </div>
 
           <footer class="drawer-footer">
-            <button class="secondary" type="button" @click="openDir">打开模型目录</button>
+            <button class="secondary" type="button" @click="openDir">{{ t('config_open_models') }}</button>
             <button class="save-btn" type="button" @click="save" :disabled="configStore.isLoading">
-              {{ configStore.isLoading ? '保存中' : '保存' }}
+              {{ configStore.isLoading ? t('config_saving') : t('config_save') }}
             </button>
           </footer>
         </aside>
@@ -110,6 +118,7 @@ import { useConfigStore } from '../stores/configStore'
 import { showToast } from '../composables/useToast'
 import { notify } from '../composables/useNotify'
 import ThemeControl from './ThemeControl.vue'
+import { currentLang, setLang, t } from '../i18n'
 
 const props = defineProps({ visible: Boolean })
 const emit = defineEmits(['update:visible', 'open-ai-center'])
@@ -166,17 +175,17 @@ function openDir() {
 }
 
 async function testNativeNotify() {
-  await notify({ title: 'VonishOCR', body: '系统通知已连接。', force: true })
-  showToast({ type: 'success', message: '已发送测试通知', duration: 2200 })
+  await notify({ title: 'VonishOCR', body: t('config_notify_test_body'), force: true })
+  showToast({ type: 'success', message: t('toast_notify_sent'), duration: 2200 })
 }
 
 async function save() {
   try {
     await configStore.updateConfig(config)
-    showToast({ type: 'success', message: '配置已保存，下次任务生效', duration: 2000 })
+    showToast({ type: 'success', message: t('toast_config_saved'), duration: 2000 })
     close()
   } catch (e) {
-    showToast({ type: 'error', message: '保存失败: ' + e.message, duration: 4000 })
+    showToast({ type: 'error', message: `${t('toast_config_save_failed')}: ${e.message}`, duration: 4000 })
   }
 }
 </script>
@@ -200,6 +209,7 @@ async function save() {
   background: var(--v-rail);
   border-left: 1px solid var(--v-border);
   color: var(--v-text);
+  font-family: var(--font-body);
 }
 
 .drawer-header {
@@ -304,6 +314,7 @@ async function save() {
   border-radius: var(--r3);
   background: var(--v-bg);
   color: var(--v-text);
+  font-family: var(--font-body);
   outline: none;
   transition: border-color var(--dur-base) var(--ease-cut);
 }

@@ -3,14 +3,18 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import './styles/theme-system.css'
 import './styles/global.css'
+import './styles/theme-light.css'
 import './styles/fluid-tokens.css'
 import './styles/container-queries.css'
 import './styles/global-buttons.css'
-import './styles/interaction-details.css'
+import './styles/global-fixes.css'
+import './styles/design-refit.css'
 import { showToast } from './composables/useToast'
+import { initLang } from './i18n'
 
 const app = createApp(App)
 app.use(createPinia())
+initLang()
 
 // 全局 Vue 错误处理
 app.config.errorHandler = (err, vm, info) => {

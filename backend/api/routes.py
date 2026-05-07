@@ -534,14 +534,27 @@ async def ocr_batch_json(request: Request, payload: dict = Body(...)):
     images = []
     total_size = 0
     MAX_BATCH_SIZE = 500 * 1024 * 1024  # 500MB，支持 50+ 张截图批量
-    for b64 in images_b64:
-        if "," in b64:
-            b64 = b64.split(",", 1)[1]
-        img_bytes = base64.b64decode(b64)
+    for idx, b64 in enumerate(images_b64):
+        try:
+            if "," in b64:
+                b64 = b64.split(",", 1)[1]
+            img_bytes = base64.b64decode(b64)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail={"code": "INVALID_IMAGE", "message": f"第 {idx + 1} 张图片 base64 解码失败: {e}"})
         total_size += len(img_bytes)
         if total_size > MAX_BATCH_SIZE:
-            raise HTTPException(status_code=413, detail={"code": "BATCH_TOO_LARGE", "message": f"批量图片总大小超过 50MB 限制"})
+            raise HTTPException(status_code=413, detail={"code": "BATCH_TOO_LARGE", "message": "批量图片总大小超过 500MB 限制，请分批上传"})
         images.append(img_bytes)
+    model_id = options.get("model") or "rapidocr-mobile-cn"
+    if model_id == "auto" or model_id not in request.app.state.engine_manager._factories:
+        model_id = "rapidocr-mobile-cn"
+    options["model"] = model_id
+    if model_id not in request.app.state.engine_manager.engines:
+        try:
+            await request.app.state.engine_manager.load(model_id)
+        except Exception as e:
+            logger.exception("批量任务加载模型失败")
+            raise HTTPException(status_code=500, detail={"code": "MODEL_LOAD_ERROR", "message": f"批量任务加载模型失败: {e}"})
     task_id = request.app.state.queue.submit(images, options)
     request.app.state.queue.register_progress_callback(task_id, _ws_progress_callback)
     return {"task_id": task_id, "status": "queued"}

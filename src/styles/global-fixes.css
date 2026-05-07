@@ -1,0 +1,83 @@
+/* 全局焦点：所有可交互元素都必须能被键盘看见。 */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible,
+.v-card:focus-visible,
+.v-dropzone:focus-visible,
+.v-state-tab:focus-visible,
+.v-export-btn:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+  transition: outline-color var(--dur-fast) var(--ease-cut);
+}
+
+/* 证据项选中态：沿用 .v-card.is-active，并补一条局部确认线。 */
+.v-card.is-active {
+  position: relative;
+}
+
+.v-card.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--s3);
+  bottom: var(--s3);
+  width: 2px;
+  background: var(--v-accent);
+  animation: v-card-active-line var(--dur-base) var(--ease-cut);
+}
+
+/* 拖拽反馈：不改变 dropzone 数据，只改变证据桌边界。 */
+.v-dropzone:hover,
+.v-dropzone.is-active {
+  border-color: var(--v-accent);
+  background: var(--v-panel);
+  box-shadow: var(--glow-soft);
+}
+
+.v-dropzone {
+  transition:
+    border-color var(--dur-base) var(--ease-cut),
+    background-color var(--dur-base) var(--ease-cut),
+    box-shadow var(--dur-base) var(--ease-cut);
+}
+
+/* 错误态抖动：识别失败时给卡片明确边界反馈。 */
+.v-card.is-error,
+.v-card[data-status="failed"] {
+  border-color: var(--v-error);
+  animation: v-error-shake 200ms var(--ease-cut);
+}
+
+/* 数字变化：AnimatedCounter 内部使用 translate，这里只统一数字栈。 */
+.v-mono-accent,
+.v-readout,
+.v-readout-strong,
+.v-readout-accent,
+.v-card-meta,
+.v-confidence-row,
+.v-progress-value {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes v-card-active-line {
+  from { transform: scaleY(0); transform-origin: top; }
+  to { transform: scaleY(1); transform-origin: top; }
+}
+
+@keyframes v-error-shake {
+  0% { transform: translateX(0); }
+  25% { transform: translateX(3px); }
+  50% { transform: translateX(-3px); }
+  100% { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v-card.is-active::before,
+  .v-card.is-error,
+  .v-card[data-status="failed"] {
+    animation: none;
+  }
+}

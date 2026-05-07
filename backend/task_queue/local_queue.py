@@ -14,6 +14,15 @@ class LocalQueue:
         self._shutdown = False
         self._progress_callbacks: Dict[str, Callable] = {}
         self._cancel_events: Dict[str, asyncio.Event] = {}
+        self.runtime_policy = None
+
+    def set_runtime_limits(self, concurrency: int, max_workers: int | None = None, policy: dict | None = None) -> None:
+        """Apply live performance limits without dropping queued tasks."""
+        self.concurrency = max(1, min(8, int(concurrency or 1)))
+        if max_workers is not None:
+            self.max_workers = max(1, min(8, int(max_workers or self.max_workers)))
+        if policy is not None:
+            self.runtime_policy = policy
 
     def submit(self, images: List[bytes], options: dict) -> str:
         task_id = str(uuid.uuid4())
@@ -101,7 +110,14 @@ class LocalQueue:
                 except Exception:
                     pass
 
-            semaphore = asyncio.Semaphore(self.concurrency)
+            effective_concurrency = self.concurrency
+            if self.runtime_policy and hasattr(self.runtime_policy, "adjust"):
+                try:
+                    snapshot = self.runtime_policy.adjust(queue_depth=len(images))
+                    effective_concurrency = int(snapshot.get("current_concurrency") or effective_concurrency)
+                except Exception:
+                    effective_concurrency = self.concurrency
+            semaphore = asyncio.Semaphore(max(1, effective_concurrency))
             results: List[dict] = [None] * len(images)
 
             async def process_one(idx: int, img: bytes):

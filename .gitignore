@@ -53,3 +53,4 @@ temp/
 *.msi
 *.exe
 backend_dist/
+.codebuddy

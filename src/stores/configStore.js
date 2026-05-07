@@ -16,6 +16,8 @@ export const useConfigStore = defineStore('config', () => {
   // State
   const config = ref({
     ocr_model: 'auto',
+    oobe_completed: false,
+    tutorial_completed: false,
     preprocess: true,
     auto_rotate: true,
     perspective_correct: false,

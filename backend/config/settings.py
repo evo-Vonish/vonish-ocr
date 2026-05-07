@@ -44,6 +44,7 @@ class UserConfig(BaseModel):
     batch_ai_refine: bool = False
     redact_sensitive: bool = False
     power_mode: str = "balanced"
+    performance_overrides: dict = Field(default_factory=dict)
     preload_model: bool = True
 
     def model_dump(self, **kwargs):
