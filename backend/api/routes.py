@@ -859,6 +859,20 @@ async def console_status(request: Request):
     probe = _get_console_probe(request, root, models_dir)
     hardware = _probe_to_console_hardware(probe, root, models_dir)
     performance = _build_performance_payload(request, probe, cfg)
+    try:
+        from api.metrics import set_cpu_temperature, set_gpu_stats
+
+        set_gpu_stats(int(float(hardware["gpu"].get("vramUsed") or 0) * 1024 ** 3), float(hardware["gpu"].get("util") or 0))
+        set_cpu_temperature(hardware["cpu"].get("temp"))
+    except Exception:
+        pass
+    service_queue = None
+    try:
+        if hasattr(request.app.state, "service_queue"):
+            service_queue = await request.app.state.service_queue.snapshot(limit=80)
+    except Exception:
+        service_queue = None
+
     return {
         "hardware": hardware,
         "models": [
@@ -877,6 +891,7 @@ async def console_status(request: Request):
         "sysInfo": {"os": platform.platform(), "appVer": "0.1.0", "pyVer": platform.python_version(), "tauriVer": "2.x"},
         "performance": performance,
         "profiles": performance["profiles"],
+        "serviceQueue": service_queue,
     }
 
 

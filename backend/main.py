@@ -12,11 +12,17 @@ from contextlib import asynccontextmanager
 # 确保 backend/ 目录在 sys.path 首位，优先解析本地模块
 sys.path.insert(0, str(Path(__file__).parent))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from api.routes import router
 from api.vault import router as vault_router
+from api.queue import router as service_queue_router
+from api.admin import router as admin_router
+from api.metrics import router as metrics_router
+from api.models import router as models_router
+from api.system import router as system_router
 from config.settings import ConfigManager
 
 _is_sidecar = False
@@ -26,6 +32,8 @@ _is_sidecar = False
 async def lifespan(app: FastAPI):
     """应用生命周期"""
     app.state.config_manager = ConfigManager()
+    from db.admin_db import AdminDB
+    app.state.admin_db = AdminDB()
     try:
         from task_queue.local_queue import LocalQueue
         from models.model_manager import ModelManager
@@ -255,6 +263,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.warning(f"启动 queue worker 失败: {e}")
 
+    # 启动服务化 REST 队列。外部 /api/v1/queue/submit 任务会进入这里，
+    # 控制台可以通过 /api/v1/queue/stream 实时订阅任务列表。
+    try:
+        from core.service_queue import ServiceTaskQueue
+
+        cfg = app.state.config_manager.load()
+        policy = getattr(app.state, "runtime_policy", None)
+        max_workers = 2
+        if policy and hasattr(policy, "snapshot"):
+            max_workers = int(policy.snapshot().get("base_concurrency") or 2)
+        app.state.service_queue = ServiceTaskQueue(
+            admin_db=app.state.admin_db,
+            app=app,
+            max_workers=max(1, min(4, max_workers)),
+            max_pending=int(getattr(cfg, "service_queue_max_pending", 200) or 200),
+        )
+        await app.state.service_queue.start()
+        logging.info("服务化任务队列已启动 workers=%s", app.state.service_queue.max_workers)
+    except Exception as e:
+        logging.warning("启动服务化任务队列失败: %s", e)
+
     if _is_sidecar:
         # sidecar 模式下 lifespan 启动即表示服务已就绪
         pass
@@ -262,6 +291,12 @@ async def lifespan(app: FastAPI):
     yield
 
     # 关闭时卸载所有引擎
+    try:
+        if hasattr(app.state, "service_queue"):
+            await app.state.service_queue.stop()
+    except Exception:
+        pass
+
     try:
         if hasattr(app.state, "engine_manager"):
             await app.state.engine_manager.unload_all()
@@ -292,9 +327,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def api_key_middleware(request: Request, call_next):
+    """Protect external service API under /api/v1/* with X-API-Key."""
+    if request.url.path.startswith("/api/v1/"):
+        try:
+            from core.auth import authenticate_api_request
+
+            request.state.tenant = await authenticate_api_request(request)
+        except Exception as exc:
+            status = getattr(exc, "status_code", 500)
+            detail = getattr(exc, "detail", str(exc))
+            return JSONResponse(status_code=status, content={"detail": detail})
+    return await call_next(request)
+
+
 app.include_router(router, prefix="/v1")
 app.include_router(router)
 app.include_router(vault_router)
+app.include_router(service_queue_router, prefix="/api/v1/queue")
+app.include_router(service_queue_router, prefix="/v1/queue")
+app.include_router(admin_router, prefix="/api/v1/admin")
+app.include_router(admin_router, prefix="/v1/admin")
+app.include_router(metrics_router)
+app.include_router(models_router)
+app.include_router(system_router)
 
 # 挂载 VitePress 文档站，供前端 iframe 内嵌
 _docs_dist = Path(__file__).parent.parent / "docs" / ".vitepress" / "dist"

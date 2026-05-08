@@ -52,7 +52,7 @@
 
 <script setup>
 import { computed, reactive, provide, ref, watch } from 'vue'
-import { t, setLang } from '../i18n'
+import { currentLang, t, setLang } from '../i18n'
 import { useThemeStore } from '../stores/themeStore'
 import OobeStepWelcome from './OobeStepWelcome.vue'
 import OobeStepTheme from './OobeStepTheme.vue'
@@ -72,9 +72,9 @@ const totalSteps = 6
 const stepRef = ref(null)
 
 const oobeData = reactive({
-  lang: 'en',
-  themeStyle: 'desk',
-  themeMode: 'dark',
+  lang: currentLang.value,
+  themeStyle: themeStore.userStyle,
+  themeMode: themeStore.userMode,
   models: {
     ultra: { id: 'rapidocr-mobile-cn', installed: true, active: true },
     standard: { id: 'cnocr-standard-cn', installed: false, active: false, downloading: false, progress: 0, skipped: false },
@@ -88,6 +88,21 @@ provide('oobeData', oobeData)
 
 watch(() => oobeData.lang, (lang) => {
   setLang(lang)
+})
+
+watch(() => props.visible, (visible) => {
+  if (!visible) return
+  currentStep.value = 1
+  direction.value = 'next'
+  isExiting.value = false
+  oobeData.lang = currentLang.value
+  oobeData.themeStyle = themeStore.resolvedStyle
+  oobeData.themeMode = themeStore.resolvedMode
+}, { immediate: true })
+
+watch(() => [oobeData.themeStyle, oobeData.themeMode], ([style, mode]) => {
+  themeStore.setThemeStyle(style)
+  themeStore.setThemeMode(mode)
 })
 
 const stepComponents = {
@@ -108,7 +123,10 @@ const tutorialButtonText = computed(() => {
 })
 
 function nextStep() {
-  if (currentStep.value >= 4) return
+  if (currentStep.value >= totalSteps) {
+    finishOobe()
+    return
+  }
   direction.value = 'next'
   currentStep.value++
 }
@@ -150,6 +168,9 @@ provide('oobeNext', nextStep)
 provide('oobePrev', prevStep)
 provide('oobeFinish', finishOobe)
 </script>
+
+<style>
+</style>
 
 <style scoped>
 .oobe-shell {

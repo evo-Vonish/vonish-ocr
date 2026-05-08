@@ -29,9 +29,9 @@
           <span class="docs-icon" aria-hidden="true"></span>
           <span>{{ t('topbar_docs') }}</span>
         </button>
-        <button class="icon-btn" type="button" title="案卷库" @click="showVault = true">
+        <button class="icon-btn" type="button" :title="t('topbar_vault_title')" @click="showVault = true">
           <span class="vault-icon" aria-hidden="true"></span>
-          <span>案卷库</span>
+          <span>{{ t('topbar_vault') }}</span>
         </button>
         <button class="icon-btn" type="button" :title="t('topbar_settings_title')" @click="showConfig = true">
           <span class="gear-icon" aria-hidden="true"></span>
@@ -108,7 +108,8 @@ const configStore = useConfigStore()
 const themeStore = useThemeStore()
 const showConfig = ref(false)
 const showAIProviderCenter = ref(false)
-const showBackendConsole = ref(false)
+// 服务化后默认进入后端控制台；证据桌作为二级测试工作台保留。
+const showBackendConsole = ref(true)
 const showDocs = ref(false)
 const showVault = ref(false)
 const showPreprocessModal = ref(false)
@@ -202,6 +203,7 @@ onMounted(async () => {
   configStore.loadModels()
 
   if (!configStore.config.oobe_completed) {
+    showBackendConsole.value = false
     showOobe.value = true
   }
 
@@ -217,17 +219,19 @@ async function onOobeComplete(data) {
   themeStore.setThemeMode(data.themeMode)
   setLang(data.lang)
 
-  const activeModel = data.models.pro.active ? 'onnxtr-standard'
-    : data.models.standard.active ? 'cnocr-standard-cn'
+  const activeModel = data.models.pro.active ? data.models.pro.id
+    : data.models.standard.active ? data.models.standard.id
     : 'rapidocr-mobile-cn'
 
   await configStore.updateConfig({
     oobe_completed: true,
     tutorial_completed: data.tutorialCompleted,
     power_mode: data.performance,
-    ocr_model: activeModel
+    ocr_model: activeModel,
+    preload_model: true
   })
 
+  showBackendConsole.value = false
   showOobe.value = false
 }
 </script>

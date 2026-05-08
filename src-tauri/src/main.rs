@@ -394,6 +394,12 @@ fn main() {
                 }
             });
 
+            // 服务化后主窗口默认定位到控制台入口。当前前端仍是单页状态机，
+            // hash 先作为外部入口标记保留，App.vue 会默认展示 BackendConsole。
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.eval("window.location.hash = '#/console';");
+            }
+
             // 创建系统托盘图标和菜单
             let show_i = MenuItemBuilder::new("显示主窗口")
                 .id("show")

@@ -1,92 +1,55 @@
-"""API Key authentication middleware — verify + rate-limit per key.
+"""API key authentication for service routes.
 
-Usage (in routes):
-    from core.auth import require_auth
-    @router.get("/protected")
-    async def protected_route(tenant: dict = Depends(require_auth)):
-        ...
+Only `/api/v1/*` is protected by the middleware in `main.py`. Legacy desktop
+routes under `/v1/*` stay local-first and compatible with the Tauri frontend.
 """
-import hashlib
 import os
-import logging
-from fastapi import Security, HTTPException, Request
+
+from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
 
-logger = logging.getLogger(__name__)
+from core.rate_limit import rate_limiter
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 class APIKeyManager:
-    """Verify API keys against a database (lazy-imported)."""
+    """Verify API keys against AdminDB.
 
-    def __init__(self):
-        self._db = None
+    The database stores only SHA-256 hashes; raw keys are never persisted.
+    """
 
-    async def _get_db(self):
-        if self._db is not None:
-            return self._db
-        # Lazy import — Codex owns backend/db/ schema
-        try:
-            from db.vault_db import _connect
-            self._db = _connect()
-        except Exception:
-            self._db = False  # mark as unavailable
-        return self._db
+    def __init__(self, db):
+        self.db = db
 
-    async def verify(self, key: str) -> dict:
-        """Return tenant dict if valid, raise 401/403 otherwise."""
-        api_required = os.environ.get("VONISH_API_KEY_REQUIRED", "true").lower() == "true"
-
+    async def verify(self, key: str | None) -> dict:
+        required = os.getenv("VONISH_API_KEY_REQUIRED", "true").lower() == "true"
         if not key:
-            if api_required:
-                raise HTTPException(401, "X-API-Key header required")
-            return {"id": "default", "name": "default", "rate_limit": 1000}
+            if required:
+                raise HTTPException(status_code=401, detail={"code": "API_KEY_REQUIRED", "message": "X-API-Key required"})
+            return {"id": "default", "tenant_id": "default", "name": "default", "rate_limit": 1000}
 
-        hashed = hashlib.sha256(key.encode()).hexdigest()
-
-        conn = await self._get_db()
-        if conn is False:
-            raise HTTPException(503, "Auth database unavailable")
-
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id, name, COALESCE(rate_limit, 60) AS rate_limit "
-                "FROM api_keys WHERE key_hash = ? AND revoked = 0",
-                (hashed,)
-            )
-            row = cursor.fetchone()
-            if not row:
-                raise HTTPException(403, "Invalid or revoked API key")
-            return {"id": row[0], "name": row[1], "rate_limit": row[2]}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning(f"Auth DB error: {e}")
-            raise HTTPException(503, "Auth database error")
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        row = await self.db.verify_api_key(key)
+        if not row:
+            raise HTTPException(status_code=403, detail={"code": "INVALID_API_KEY", "message": "Invalid or revoked API key"})
+        return {
+            "id": row["key_hash"],
+            "tenant_id": row.get("tenant_id") or "default",
+            "name": row.get("name") or row.get("key_prefix") or "api-key",
+            "rate_limit": int(row.get("rate_limit") or 60),
+            "key_prefix": row.get("key_prefix"),
+        }
 
 
-# Singleton
-key_manager = APIKeyManager()
-
-
-async def require_auth(
-    request: Request,
-    x_api_key: str = Security(api_key_header),
-) -> dict:
-    """FastAPI Dependency: verify key + enforce rate limit."""
-    tenant = await key_manager.verify(x_api_key)
-
-    # Rate-limit check — lazy import to avoid cycle
-    from core.rate_limit import rate_limiter
-    allowed = await rate_limiter.is_allowed(tenant["id"], tenant["rate_limit"])
-    if not allowed:
-        raise HTTPException(429, "Rate limit exceeded. Retry after a moment.")
-
+async def require_auth(request: Request, x_api_key: str = Security(api_key_header)) -> dict:
+    """FastAPI dependency for API key verification and per-key RPM limiting."""
+    manager = APIKeyManager(request.app.state.admin_db)
+    tenant = await manager.verify(x_api_key)
+    if not await rate_limiter.is_allowed(tenant["id"], tenant["rate_limit"]):
+        raise HTTPException(status_code=429, detail={"code": "RATE_LIMITED", "message": "Rate limit exceeded"})
     return tenant
+
+
+async def authenticate_api_request(request: Request) -> dict:
+    """Middleware helper for protecting `/api/v1/*` without touching every route."""
+    return await require_auth(request, request.headers.get("X-API-Key"))

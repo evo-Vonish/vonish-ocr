@@ -2,7 +2,7 @@
 import secrets
 import time
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Request
 
 router = APIRouter()
 
@@ -39,3 +39,18 @@ async def list_api_keys(request: Request):
 async def revoke_api_key(request: Request, key_or_prefix: str):
     ok = await request.app.state.admin_db.revoke_api_key(key_or_prefix)
     return {"revoked": ok, "key": key_or_prefix}
+
+
+@router.post("/config/reload")
+async def reload_config(admin_key: str | None = Header(None)):
+    """HTTP trigger for dynamic config reload.
+
+    TODO: validate admin_key once administrator roles are separated from normal API keys.
+    """
+    try:
+        from core.config import config
+
+        config.reload()
+        return {"reloaded": True, "timestamp": time.time()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"code": "CONFIG_RELOAD_FAILED", "message": str(e)})

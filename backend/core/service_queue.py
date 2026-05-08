@@ -64,6 +64,12 @@ class ServiceTaskQueue:
             "queue_pos": queue_pos,
         })
         await self.queue.put((-int(priority or 0), self._seq, task_id))
+        try:
+            from api.metrics import set_queue_depth
+
+            set_queue_depth(self.queue.qsize())
+        except Exception:
+            pass
         await self.publish()
         return {"task_id": task_id, "queue_pos": queue_pos}
 
@@ -72,6 +78,12 @@ class ServiceTaskQueue:
         if not task or task["status"] not in ("queued", "processing"):
             return False
         await self.admin_db.update_task(task_id, status="cancelled", completed_at=time.time())
+        try:
+            from api.metrics import set_queue_depth
+
+            set_queue_depth(self.queue.qsize())
+        except Exception:
+            pass
         await self.publish()
         return True
 
@@ -92,6 +104,12 @@ class ServiceTaskQueue:
             completed_at=None,
         )
         await self.queue.put((-int(task.get("priority") or 0), self._seq, task_id))
+        try:
+            from api.metrics import set_queue_depth
+
+            set_queue_depth(self.queue.qsize())
+        except Exception:
+            pass
         await self.publish()
         return True
 
@@ -164,9 +182,10 @@ class ServiceTaskQueue:
 
             started = time.time()
             result = await engine_mgr.recognize(image_bytes, model_id=model_id, options={"model": model_id})
+            elapsed = time.time() - started
             result["task_id"] = task_id
             result["model"] = model_id
-            result["elapsed_ms"] = int((time.time() - started) * 1000)
+            result["elapsed_ms"] = int(elapsed * 1000)
             await self.admin_db.update_task(
                 task_id,
                 status="done",
@@ -174,6 +193,13 @@ class ServiceTaskQueue:
                 result_json=json.dumps(result, ensure_ascii=False),
                 error=None,
             )
+            try:
+                from api.metrics import record_ocr_duration, record_ocr_request
+
+                record_ocr_duration(task["model_tier"], elapsed)
+                record_ocr_request(task["model_tier"], "done", task.get("tenant_id") or "default")
+            except Exception:
+                pass
             logger.info("Service queue task %s completed by worker %s", task_id, worker_index)
         except Exception as exc:
             logger.exception("Service queue task failed: %s", task_id)
@@ -183,6 +209,18 @@ class ServiceTaskQueue:
                 completed_at=time.time(),
                 error=str(exc),
             )
+            try:
+                from api.metrics import record_ocr_request
+
+                record_ocr_request(task.get("model_tier") or "auto", "failed", task.get("tenant_id") or "default")
+            except Exception:
+                pass
+        try:
+            from api.metrics import set_queue_depth
+
+            set_queue_depth(self.queue.qsize())
+        except Exception:
+            pass
         await self.publish()
 
     @staticmethod

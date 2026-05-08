@@ -18,6 +18,9 @@ async def _tenant_from_key(request: Request, x_api_key: str | None):
     Missing key maps to the built-in local tenant so existing desktop use stays
     frictionless. External callers should use keys from /api/v1/admin/keys.
     """
+    if hasattr(request.state, "tenant"):
+        return request.state.tenant
+
     if not x_api_key:
         return {"tenant_id": "default", "rate_limit": 600, "name": "local"}
 

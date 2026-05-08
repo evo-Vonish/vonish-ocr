@@ -307,6 +307,39 @@ export async function applyConsolePerformance(mode, overrides = {}) {
   })
 }
 
+// 服务化队列 API：供后端控制台实时任务面板接入。
+export async function getServiceQueueTasks(limit = 100) {
+  return _backendJson(`/v1/queue/tasks?limit=${encodeURIComponent(limit)}`)
+}
+
+export async function getServiceQueueTask(taskId) {
+  return _backendJson(`/v1/queue/status/${encodeURIComponent(taskId)}`)
+}
+
+export async function cancelServiceQueueTask(taskId) {
+  return _backendJson(`/v1/queue/cancel/${encodeURIComponent(taskId)}`, { method: 'POST' })
+}
+
+export async function retryServiceQueueTask(taskId) {
+  return _backendJson(`/v1/queue/retry/${encodeURIComponent(taskId)}`, { method: 'POST' })
+}
+
+export async function getApiKeys() {
+  return _backendJson('/v1/admin/keys')
+}
+
+export async function createApiKey(payload) {
+  return _backendJson('/v1/admin/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function revokeApiKey(keyOrPrefix) {
+  return _backendJson(`/v1/admin/keys/${encodeURIComponent(keyOrPrefix)}`, { method: 'DELETE' })
+}
+
 // 查询 Tauri 管理的 sidecar 状态。停止服务后 HTTP 不可用，所以必须走原生命令。
 export async function getBackendServiceState() {
   if (!isTauri()) {

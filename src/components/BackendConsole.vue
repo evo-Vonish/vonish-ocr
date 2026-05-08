@@ -205,6 +205,8 @@ print(res.json())</pre>
         </article>
       </section>
 
+      <QueueMonitor />
+
       <section class="queue-strip mono">
         <span>QUEUE <b>{{ queue.pending.toString().padStart(2, '0') }}</b></span>
         <span>PROC <b>{{ queue.processing.toString().padStart(2, '0') }}</b></span>
@@ -260,6 +262,7 @@ import { useConfigStore } from '../stores/configStore'
 import { useTaskStore } from '../stores/taskStore'
 import { showToast } from '../composables/useToast'
 import { downloadBlob } from '../utils/exporters'
+import QueueMonitor from './console/QueueMonitor.vue'
 
 defineEmits(['close'])
 

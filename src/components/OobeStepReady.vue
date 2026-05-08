@@ -1,27 +1,15 @@
 <template>
   <div class="oobe-step-ready">
-    <div class="oobe-glow-wrap" :class="{ 'is-zooming': isZooming }">
+    <div class="oobe-glow-wrap">
       <div class="oobe-glow-circle"></div>
     </div>
     <h1 class="oobe-ready-title">{{ t('oobe_ready_title') }}</h1>
     <p class="oobe-ready-subtitle">{{ t('oobe_ready_subtitle') }}</p>
-    <button class="oobe-ready-btn" @click="enterDesk">{{ t('oobe_ready_enter') }}</button>
   </div>
 </template>
 
 <script setup>
-import { inject, ref } from 'vue'
 import { t } from '../i18n'
-
-const oobeFinish = inject('oobeFinish')
-const isZooming = ref(false)
-
-function enterDesk() {
-  isZooming.value = true
-  setTimeout(() => {
-    oobeFinish()
-  }, 600)
-}
 </script>
 
 <style scoped>
