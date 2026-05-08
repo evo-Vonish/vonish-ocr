@@ -298,6 +298,15 @@ export async function clearConsoleCache() {
   })
 }
 
+// 控制台性能模式：由后端按真实硬件重新计算安全并发，并同步到 LocalQueue。
+export async function applyConsolePerformance(mode, overrides = {}) {
+  return _backendJson('/v1/console/performance/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, overrides }),
+  })
+}
+
 // 查询 Tauri 管理的 sidecar 状态。停止服务后 HTTP 不可用，所以必须走原生命令。
 export async function getBackendServiceState() {
   if (!isTauri()) {

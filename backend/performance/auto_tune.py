@@ -3,6 +3,11 @@ from dataclasses import asdict, dataclass
 
 @dataclass
 class RuntimePolicy:
+    """后端真实执行策略。
+
+    这里的并发数不是跑分上限，而是 OCR + DirectML + OpenCV 长时间批处理的安全值。
+    """
+
     mode: str
     tier: str
     max_workers: int
@@ -49,24 +54,23 @@ def _mode_multiplier(mode: str) -> float:
 
 
 def compute_runtime_policy(hardware: dict, mode: str = "balanced", overrides: dict | None = None) -> RuntimePolicy:
-    """Compute a conservative runtime policy from hardware.
+    """根据硬件探针计算保守策略。
 
-    The report's large concurrency values are intentionally not used directly:
-    DirectML and OCR preprocessing create sizeable transient allocations, so
-    the safe defaults here favor sustained batch stability over peak benchmark
-    numbers.
+    报告里的高并发伪代码不能直接照搬。OCR 预处理会产生瞬时内存和显存分配，
+    因此这里优先保证 10-50 张批量任务稳定跑完，再给“野兽”模式有限放宽。
     """
+
     overrides = overrides or {}
     cpu = hardware.get("cpu") or {}
     mem = hardware.get("memory") or {}
-    gpus = hardware.get("gpu") or []
+    gpus = hardware.get("gpu") or hardware.get("gpus") or []
     gpu = gpus[0] if gpus else {}
 
     physical = int(cpu.get("physical_cores") or max(1, int(cpu.get("logical_cores") or 2) // 2))
     logical = int(cpu.get("logical_cores") or physical)
     total_mem = float(mem.get("total_gb") or 0)
     safe_mem = float(mem.get("safe_memory_gb") or 0.5)
-    vram = float(gpu.get("vram_total_gb") or 0)
+    vram = float(gpu.get("vram_total_gb") or gpu.get("vram_dedicated_gb") or 0)
     shared = bool(gpu.get("shared_memory")) or gpu.get("vendor") in ("Apple", "Intel", "Unknown")
     tier = _gpu_tier(vram, shared)
 
@@ -94,6 +98,7 @@ def compute_runtime_policy(hardware: dict, mode: str = "balanced", overrides: di
     preprocess_workers = _clamp(physical // 4, 1, 4)
     if mode == "eco":
         preprocess_workers = 1
+
     intra = _clamp(physical - 2, 2, max(2, physical))
     if preprocess_workers + intra > logical:
         intra = _clamp(logical - preprocess_workers, 2, max(2, logical))
@@ -111,7 +116,7 @@ def compute_runtime_policy(hardware: dict, mode: str = "balanced", overrides: di
 
     reason_bits = []
     if gpu:
-        reason_bits.append(f"{gpu.get('name', 'GPU')} · {vram:.1f}GB VRAM")
+        reason_bits.append(f"{gpu.get('name', 'GPU')} / {vram:.1f}GB VRAM")
     else:
         reason_bits.append("CPU only")
     reason_bits.append(f"{physical}P/{logical}T CPU")
@@ -140,9 +145,9 @@ def compute_runtime_policy(hardware: dict, mode: str = "balanced", overrides: di
 def profile_cards(hardware: dict, active_mode: str, overrides: dict | None = None) -> list[dict]:
     labels = {
         "auto": "自动",
-        "beast": "全速",
+        "beast": "野兽",
         "balanced": "均衡",
-        "eco": "静音",
+        "eco": "节能",
         "custom": "自定义",
     }
     cards = []
@@ -155,4 +160,3 @@ def profile_cards(hardware: dict, active_mode: str, overrides: dict | None = Non
             "policy": policy.to_dict(),
         })
     return cards
-

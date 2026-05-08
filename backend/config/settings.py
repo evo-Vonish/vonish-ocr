@@ -32,6 +32,8 @@ class AIScheme(BaseModel):
 
 class UserConfig(BaseModel):
     ocr_model: str = "auto"
+    oobe_completed: bool = False
+    tutorial_completed: bool = False
     preprocess: bool = True
     auto_rotate: bool = True
     perspective_correct: bool = False

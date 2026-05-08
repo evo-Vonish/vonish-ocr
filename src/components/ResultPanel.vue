@@ -55,7 +55,7 @@
           <div class="result-label">RAW OCR</div>
           <span class="result-chip">{{ formatConfidence(displayResult.confidence) }}</span>
         </div>
-        <pre class="ocr-text evidence-text">{{ displayResult.text || '暂无识别结果' }}</pre>
+        <MdRender class="evidence-text" :text="displayResult.text || '暂无识别结果'" />
       </div>
 
       <div v-if="activeTab === 'polished'" class="single-result">
@@ -70,7 +70,7 @@
             <button v-else class="text-btn" type="button" :disabled="!displayResult.text" @click="startRefine">重新精修</button>
           </div>
         </div>
-        <pre class="ocr-text evidence-text">{{ streamedText || displayResult.polished || '暂无精修结果' }}</pre>
+        <MdRender class="evidence-text" :text="streamedText || displayResult.polished || '暂无精修结果'" />
         <div v-if="streamStatus === 'error'" class="quiet-note is-error">AI 修复失败：{{ aiStream.error.value?.message || '未知错误' }}</div>
         <div v-if="streamStatus === 'interrupted'" class="quiet-note">精修已中断，已保留当前输出。</div>
       </div>
@@ -120,6 +120,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import MdRender from './MdRender.vue'
 import { useTaskStore } from '../stores/taskStore'
 import { useAIStream } from '../composables/useAIStream'
 import { copyResult, exportSingle } from '../utils/exporters'

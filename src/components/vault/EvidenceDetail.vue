@@ -27,8 +27,8 @@
     </div>
 
     <div class="detail-text">
-      <pre v-if="tab === 'raw'">{{ evidence.raw_text || '暂无' }}</pre>
-      <pre v-else-if="tab === 'refined'">{{ evidence.refined_text || '暂无精修结果' }}</pre>
+      <MdRender v-if="tab === 'raw'" :text="evidence.raw_text || '暂无'" />
+      <MdRender v-else-if="tab === 'refined'" :text="evidence.refined_text || '暂无精修结果'" />
       <pre v-else>{{ evidence.diff_json || '无差异记录' }}</pre>
     </div>
 
@@ -43,6 +43,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import MdRender from '../MdRender.vue'
 
 defineProps({ evidence: { type: Object, default: () => ({}) } })
 defineEmits(['close', 'reprocess', 'export', 'move', 'delete'])

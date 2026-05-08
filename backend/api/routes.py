@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from io import BytesIO
@@ -694,6 +695,150 @@ async def console_clear_cache(request: Request):
         raise HTTPException(status_code=500, detail={"code": "CACHE_CLEAR_FAILED", "message": str(e)})
 
 
+def _get_console_probe(request: Request, root: Path, models_dir: Path) -> dict:
+    """读取硬件探针结果，并做短缓存，避免控制台轮询时反复拉起 PowerShell / nvidia-smi。"""
+    now = time.time()
+    cached = getattr(request.app.state, "hardware_probe", None)
+    cached_at = float(getattr(request.app.state, "hardware_probe_ts", 0) or 0)
+    if cached and now - cached_at < 5:
+        return cached
+
+    from performance.hardware_probe import full_hardware_probe
+
+    probe = full_hardware_probe(root=root, models_dir=models_dir)
+    request.app.state.hardware_probe = probe
+    request.app.state.hardware_probe_ts = now
+    return probe
+
+
+def _probe_to_console_hardware(probe: dict, root: Path, models_dir: Path) -> dict:
+    """把后端探针结构转换成 BackendConsole.vue 现有仪表盘字段。"""
+    disk_usage = shutil.disk_usage(root)
+    cpu = probe.get("cpu") or {}
+    mem = probe.get("memory") or {}
+    disk = probe.get("disk") or {}
+    gpus = probe.get("gpu") or probe.get("gpus") or []
+    gpu = gpus[0] if gpus else {}
+
+    cpu_util = 0
+    cpu_freq = 0
+    mem_total = float(mem.get("total_gb") or 0)
+    mem_available = float(mem.get("available_gb") or 0)
+    mem_used = max(0, mem_total - mem_available) if mem_total else 0
+    try:
+        import psutil
+
+        cpu_util = round(float(psutil.cpu_percent(interval=0.05)), 1)
+        freq = psutil.cpu_freq()
+        if freq:
+            cpu_freq = round(float(freq.current) / 1000, 2)
+    except Exception:
+        pass
+
+    vram_total = float(gpu.get("vram_total_gb") or gpu.get("vram_dedicated_gb") or 0)
+    vram_used = float(gpu.get("vram_used_gb") or 0)
+    return {
+        "gpu": {
+            "name": gpu.get("name") or "DirectML GPU",
+            "vramTotal": round(vram_total, 1),
+            "vramUsed": round(vram_used, 1),
+            "util": round(float(gpu.get("util") or 0), 1),
+            "temp": round(float(gpu.get("temp") or 0), 1),
+            "power": round(float(gpu.get("power") or 0), 1),
+            "fan": round(float(gpu.get("fan") or 0), 1),
+        },
+        "cpu": {
+            "name": cpu.get("brand") or platform.processor() or platform.machine() or "CPU",
+            "cores": f"{cpu.get('physical_cores') or 0}/{cpu.get('logical_cores') or os.cpu_count() or 0}",
+            "util": cpu_util,
+            "freq": cpu_freq,
+            "temp": 0,
+        },
+        "mem": {"type": "SYSTEM", "total": round(mem_total, 1), "used": round(mem_used, 1)},
+        "disk": {
+            "cacheSize": round(float(disk.get("model_cache_gb") or (_dir_size(models_dir) / (1024 ** 3))), 2),
+            "free": round(float(disk.get("free_gb") or (disk_usage.free / (1024 ** 3))), 1),
+        },
+        "bus": gpu.get("bus") or "PCIe / DirectML",
+        "fanCpu": 0,
+    }
+
+
+def _build_performance_payload(request: Request, probe: dict, cfg) -> dict:
+    """根据当前硬件和用户模式生成真实运行策略，供控制台展示。"""
+    from performance.auto_tune import compute_runtime_policy, profile_cards
+    from performance.runtime_policy import RuntimePolicyController
+
+    mode = getattr(cfg, "power_mode", "balanced") or "balanced"
+    overrides = getattr(cfg, "performance_overrides", {}) or {}
+    policy = compute_runtime_policy(probe, mode=mode, overrides=overrides)
+    controller = getattr(request.app.state, "runtime_policy", None)
+    if controller is None:
+        controller = RuntimePolicyController(policy.to_dict())
+        request.app.state.runtime_policy = controller
+    return {
+        "activeMode": mode,
+        "policy": policy.to_dict(),
+        "runtime": controller.snapshot(),
+        "profiles": profile_cards(probe, active_mode=mode, overrides=overrides),
+    }
+
+
+@router.post("/v1/console/performance/apply")
+async def console_apply_performance(request: Request, payload: dict = Body(...)):
+    """应用性能模式到真实队列，而不是只改前端显示。"""
+    mode = payload.get("mode") or payload.get("id") or "balanced"
+    if mode not in {"auto", "beast", "balanced", "eco", "custom"}:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_PROFILE", "message": "未知性能模式"})
+
+    overrides = payload.get("overrides") or {}
+    cfg = request.app.state.config_manager.load()
+    cfg.power_mode = mode
+    if overrides:
+        cfg.performance_overrides = overrides
+    request.app.state.config_manager.save(cfg)
+
+    root = Path(__file__).resolve().parents[2]
+    models_dir = root / "models"
+    probe = _get_console_probe(request, root, models_dir)
+
+    from performance.auto_tune import compute_runtime_policy, profile_cards
+    from performance.runtime_policy import RuntimePolicyController
+
+    policy = compute_runtime_policy(probe, mode=mode, overrides=getattr(cfg, "performance_overrides", {}) or {})
+    controller = getattr(request.app.state, "runtime_policy", None)
+    if controller is None:
+        controller = RuntimePolicyController(policy.to_dict())
+        request.app.state.runtime_policy = controller
+    else:
+        controller.update_policy(policy.to_dict())
+
+    queue = getattr(request.app.state, "queue", None)
+    if queue and hasattr(queue, "set_runtime_limits"):
+        queue.set_runtime_limits(policy.concurrency, max_workers=policy.max_workers, policy=controller)
+
+    logger.info(
+        "性能模式已应用: mode=%s tier=%s concurrency=%s batch=%s reason=%s",
+        mode,
+        policy.tier,
+        policy.concurrency,
+        policy.batch_size,
+        policy.reason,
+    )
+    return {
+        "status": "ok",
+        "mode": mode,
+        "policy": policy.to_dict(),
+        "runtime": controller.snapshot(),
+        "profiles": profile_cards(probe, active_mode=mode, overrides=getattr(cfg, "performance_overrides", {}) or {}),
+        "steps": [
+            {"name": "硬件探测", "status": "done", "detail": f"GPU tier {policy.tier}"},
+            {"name": "策略计算", "status": "done", "detail": f"并发 {policy.concurrency} / 批量 {policy.batch_size}"},
+            {"name": "队列应用", "status": "done", "detail": f"worker {policy.max_workers} / preprocess {policy.preprocess_workers}"},
+        ],
+    }
+
+
 @router.get("/v1/console/status")
 async def console_status(request: Request):
     """Backend console snapshot for the in-app control room."""
@@ -711,7 +856,9 @@ async def console_status(request: Request):
     active_model = getattr(request.app.state.engine_manager, "active", None)
 
     log_rows = _read_console_logs(logs_path)
-    hardware = _read_hardware_snapshot(root, models_dir)
+    probe = _get_console_probe(request, root, models_dir)
+    hardware = _probe_to_console_hardware(probe, root, models_dir)
+    performance = _build_performance_payload(request, probe, cfg)
     return {
         "hardware": hardware,
         "models": [
@@ -728,6 +875,8 @@ async def console_status(request: Request):
         },
         "logs": log_rows[-120:],
         "sysInfo": {"os": platform.platform(), "appVer": "0.1.0", "pyVer": platform.python_version(), "tauriVer": "2.x"},
+        "performance": performance,
+        "profiles": performance["profiles"],
     }
 
 

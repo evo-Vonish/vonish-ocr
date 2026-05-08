@@ -104,12 +104,22 @@
               :key="profile.id"
               type="button"
               class="profile-pill"
-              :class="{ active: currentProfileId === profile.id }"
+              :class="{ active: currentProfileId === profile.id, busy: busyAction === `profile:${profile.id}` }"
+              :disabled="Boolean(busyAction)"
               @click="chooseProfile(profile)"
             >
               <span>{{ profile.name }}</span>
-              <small>PL1 {{ profile.pl1 }}W · 并发 {{ profile.concurrent }} · {{ profile.fan }}</small>
+              <small>{{ profileSummary(profile) }}</small>
             </button>
+          </div>
+          <div v-if="performancePolicy" class="resident-card performance-card">
+            <span class="mono">ACTIVE {{ performancePolicy.mode?.toUpperCase?.() || currentProfileId.toUpperCase() }}</span>
+            <small>
+              CONC {{ runtimePolicy?.current_concurrency || performancePolicy.concurrency }}
+              / BATCH {{ performancePolicy.batch_size }}
+              / PREP {{ performancePolicy.preprocess_workers }}
+            </small>
+            <small>{{ performancePolicy.reason }}</small>
           </div>
         </article>
 
@@ -237,6 +247,7 @@ print(res.json())</pre>
 <script setup>
 import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  applyConsolePerformance,
   clearConsoleCache,
   controlBackendService,
   getBackendConsoleStatus,
@@ -311,11 +322,14 @@ const models = ref([
 const currentModelId = ref('rapid')
 
 const profiles = ref([
-  { id: 'beast', name: '野兽', pl1: 65, concurrent: 8, fan: '高性能' },
-  { id: 'balanced', name: '均衡', pl1: 45, concurrent: 4, fan: '自动' },
-  { id: 'eco', name: '节能', pl1: 25, concurrent: 2, fan: '静音' },
+  { id: 'auto', name: '自动', policy: { concurrency: 1, batch_size: 1, preprocess_workers: 1 } },
+  { id: 'beast', name: '野兽', policy: { concurrency: 2, batch_size: 2, preprocess_workers: 2 } },
+  { id: 'balanced', name: '均衡', policy: { concurrency: 1, batch_size: 1, preprocess_workers: 1 } },
+  { id: 'eco', name: '节能', policy: { concurrency: 1, batch_size: 1, preprocess_workers: 1 } },
 ])
 const currentProfileId = ref('balanced')
+const performancePolicy = ref(null)
+const runtimePolicy = ref(null)
 
 const localApi = ref({
   endpoint: 'http://localhost:8000/v1/ocr',
@@ -406,6 +420,14 @@ async function refreshStatus() {
     localApi.value = { ...localApi.value, ...(data.localApi || {}), status: 'running' }
     logs.value = data.logs?.length ? data.logs : logs.value.length ? logs.value : seedLogs()
     sysInfo.value = { ...sysInfo.value, ...(data.sysInfo || {}) }
+    if (data.performance) {
+      performancePolicy.value = data.performance.policy || performancePolicy.value
+      runtimePolicy.value = data.performance.runtime || runtimePolicy.value
+      profiles.value = data.performance.profiles || data.profiles || profiles.value
+      currentProfileId.value = data.performance.activeMode || currentProfileId.value
+    } else if (data.profiles) {
+      profiles.value = data.profiles
+    }
     const active = models.value.find(m => m.active)
     if (active && !modelSwitchingId.value) currentModelId.value = active.id
   } catch (e) {
@@ -467,11 +489,39 @@ function modelStatusText(status) {
   return ({ resident: '驻留中', unloaded: '未加载', 'needs-convert': '需转换' })[status] || status || '--'
 }
 
+function profileSummary(profile) {
+  const policy = profile.policy || profile
+  const concurrency = policy.concurrency ?? profile.concurrent ?? '--'
+  const batch = policy.batch_size ?? policy.batch ?? concurrency
+  const prep = policy.preprocess_workers ?? '--'
+  const thermal = policy.thermal_limit_c ? ` · ${policy.thermal_limit_c}C` : ''
+  return `并发 ${concurrency} · 批量 ${batch} · 预处理 ${prep}${thermal}`
+}
+
 async function chooseProfile(profile) {
-  currentProfileId.value = profile.id
-  await configStore.updateConfig({ power_mode: profile.id })
-  appendLog('info', 'QUEUE', `性能模式切换 -> ${profile.name}`)
-  showToast({ type: 'success', message: `性能模式已切换为${profile.name}`, duration: 1800 })
+  if (busyAction.value || profile.id === currentProfileId.value) return
+  busyAction.value = `profile:${profile.id}`
+  appendLog('info', 'QUEUE', `性能模式计算 -> ${profile.name}`)
+  try {
+    const result = await applyConsolePerformance(profile.id)
+    currentProfileId.value = result.mode || profile.id
+    performancePolicy.value = result.policy || performancePolicy.value
+    runtimePolicy.value = result.runtime || runtimePolicy.value
+    profiles.value = result.profiles || profiles.value
+    await configStore.loadConfig()
+    appendLog(
+      'info',
+      'QUEUE',
+      `性能模式已应用 -> ${profile.name} / 并发 ${performancePolicy.value?.concurrency || '--'} / 批量 ${performancePolicy.value?.batch_size || '--'}`,
+    )
+    showToast({ type: 'success', message: `性能模式已应用：${profile.name}`, duration: 2200 })
+  } catch (e) {
+    const detail = e?.detail?.message || e?.message || String(e)
+    appendLog('error', 'QUEUE', `性能模式切换失败: ${detail}`)
+    showToast({ type: 'error', message: detail, duration: 4200 })
+  } finally {
+    busyAction.value = ''
+  }
 }
 
 async function copyEndpoint() {
@@ -916,6 +966,11 @@ function resolveConsoleDialog(value) {
   margin-bottom: var(--s3);
 }
 
+.performance-card {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .capsule-row,
 .profile-row,
 .filter-row,
@@ -974,7 +1029,8 @@ function resolveConsoleDialog(value) {
   box-shadow: var(--glow-soft);
 }
 
-.capsule.busy {
+.capsule.busy,
+.profile-pill.busy {
   border-color: var(--v-accent);
   animation: busy-pulse 900ms var(--ease-cut) infinite;
 }

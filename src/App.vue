@@ -80,7 +80,7 @@
   <AIProviderModal v-model:visible="showAIProviderCenter" />
   <ToastStack />
   <DialogSystem />
-  <OobeShell v-model:visible="showOobe" @complete="onOobeComplete" />
+  <OobeShell :visible="showOobe" @complete="onOobeComplete" />
 </template>
 
 <script setup>
