@@ -5,27 +5,34 @@
 
     <div class="oobe-model-list">
       <!-- Ultra -->
-      <div class="v-card oobe-model-card is-resident">
+      <div class="v-card oobe-model-card is-resident"
+        :class="{ 'is-active': oobeData.models.ultra.active }"
+        @click="selectModel('ultra')"
+      >
         <div class="oobe-model-header">
           <span class="oobe-model-tier">{{ t('oobe_model_ultra') }}</span>
           <span class="oobe-model-badge">{{ t('oobe_model_resident') }}</span>
         </div>
         <div class="oobe-model-name">{{ t('oobe_model_rapidocr') }}</div>
-        <div class="oobe-model-spec">17MB · <1GB VRAM · {{ t('oobe_model_resident') }}</div>
+        <div class="oobe-model-spec">{{ t('oobe_model_rapidocr_spec') }}</div>
       </div>
 
       <!-- Standard -->
-      <div class="v-card oobe-model-card" :class="{ 'is-resident': standardInstalled }">
+      <div
+        class="v-card oobe-model-card"
+        :class="{ 'is-resident': standardInstalled, 'is-active': oobeData.models.standard.active, 'is-muted': standardSkipped }"
+        @click="selectModel('standard')"
+      >
         <div class="oobe-model-header">
           <span class="oobe-model-tier">{{ t('oobe_model_standard') }}</span>
           <span v-if="standardInstalled" class="oobe-model-badge">{{ t('oobe_model_resident') }}</span>
         </div>
         <div class="oobe-model-name">{{ t('oobe_model_cnocr') }}</div>
-        <div class="oobe-model-spec">23MB · <1GB VRAM · Chinese + Vert</div>
+        <div class="oobe-model-spec">{{ t('oobe_model_cnocr_spec') }}</div>
         <div class="oobe-model-actions">
-          <template v-if="!standardInstalled && !standardDownloading">
-            <button class="oobe-btn-outline" @click="downloadModel('standard')">{{ t('oobe_model_download') }}</button>
-            <button class="oobe-btn-ghost-small" @click="skipModel('standard')">{{ t('oobe_model_skip') }}</button>
+          <template v-if="!standardInstalled && !standardDownloading && !standardSkipped">
+            <button class="oobe-btn-outline" @click.stop="downloadModel('standard')">{{ t('oobe_model_download') }}</button>
+            <button class="oobe-btn-ghost-small" @click.stop="skipModel('standard')">{{ t('oobe_model_skip') }}</button>
           </template>
           <template v-else-if="standardDownloading">
             <div class="oobe-model-progress">
@@ -42,17 +49,21 @@
       </div>
 
       <!-- Pro -->
-      <div class="v-card oobe-model-card" :class="{ 'is-resident': proInstalled }">
+      <div
+        class="v-card oobe-model-card"
+        :class="{ 'is-resident': proInstalled, 'is-active': oobeData.models.pro.active, 'is-muted': proSkipped }"
+        @click="selectModel('pro')"
+      >
         <div class="oobe-model-header">
           <span class="oobe-model-tier">{{ t('oobe_model_pro') }}</span>
           <span v-if="proInstalled" class="oobe-model-badge">{{ t('oobe_model_resident') }}</span>
         </div>
         <div class="oobe-model-name">{{ t('oobe_model_onnxtr') }}</div>
-        <div class="oobe-model-spec">187MB · <2GB VRAM · Layout + Table</div>
+        <div class="oobe-model-spec">{{ t('oobe_model_onnxtr_spec') }}</div>
         <div class="oobe-model-actions">
-          <template v-if="!proInstalled && !proDownloading">
-            <button class="oobe-btn-outline" @click="downloadModel('pro')">{{ t('oobe_model_download') }}</button>
-            <button class="oobe-btn-ghost-small" @click="skipModel('pro')">{{ t('oobe_model_skip') }}</button>
+          <template v-if="!proInstalled && !proDownloading && !proSkipped">
+            <button class="oobe-btn-outline" @click.stop="downloadModel('pro')">{{ t('oobe_model_download') }}</button>
+            <button class="oobe-btn-ghost-small" @click.stop="skipModel('pro')">{{ t('oobe_model_skip') }}</button>
           </template>
           <template v-else-if="proDownloading">
             <div class="oobe-model-progress">
@@ -72,7 +83,7 @@
 </template>
 
 <script setup>
-import { computed, inject, watch } from 'vue'
+import { computed, inject, onMounted, watch } from 'vue'
 import { t } from '../i18n'
 import { useConfigStore } from '../stores/configStore'
 
@@ -109,6 +120,12 @@ watch(() => configStore.pullProgress, (pp) => {
   }
 })
 
+watch(() => configStore.models, syncInstalledModels, { deep: true })
+
+onMounted(() => {
+  syncInstalledModels()
+})
+
 async function downloadModel(tier) {
   const model = oobeData.models[tier]
   model.downloading = true
@@ -116,9 +133,9 @@ async function downloadModel(tier) {
   try {
     await configStore.downloadModel(model.id)
     model.installed = true
-    model.active = true
+    selectModel(tier)
   } catch (e) {
-    console.error('下载失败:', e)
+    console.error('model download failed:', e)
   } finally {
     model.downloading = false
   }
@@ -126,6 +143,28 @@ async function downloadModel(tier) {
 
 function skipModel(tier) {
   oobeData.models[tier].skipped = true
+  oobeData.models[tier].active = false
+  if (!oobeData.models.ultra.active && !oobeData.models.standard.active && !oobeData.models.pro.active) {
+    oobeData.models.ultra.active = true
+  }
+}
+
+function syncInstalledModels() {
+  const local = configStore.models?.local || configStore.models?.models || []
+  const ids = new Set(local.map(m => m.id || m.model_id || m.name).filter(Boolean))
+  if (ids.has(oobeData.models.standard.id)) {
+    oobeData.models.standard.installed = true
+  }
+  if (ids.has(oobeData.models.pro.id)) {
+    oobeData.models.pro.installed = true
+  }
+}
+
+function selectModel(tier) {
+  const model = oobeData.models[tier]
+  if (!model?.installed || model.skipped || model.downloading) return
+  Object.values(oobeData.models).forEach(item => { item.active = false })
+  model.active = true
 }
 </script>
 

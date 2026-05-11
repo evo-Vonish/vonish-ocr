@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from cli.core.context import get_client
+from cli.core.daemon import project_root
 from cli.core.formatter import print_json
 
 
@@ -51,7 +52,7 @@ def reload(ctx):
 
 @config.command()
 def edit():
-    path = Path(os.environ.get("VONISH_CONFIG", "config.json"))
+    path = Path(os.environ.get("VONISH_CONFIG", project_root() / "config.json"))
     editor = os.environ.get("EDITOR") or ("notepad" if os.name == "nt" else "vi")
     subprocess.call([editor, str(path)])
 

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://vonishocr.local/schemas/langpack-index-v1.json",
+  "manifest_version": "1.0.0",
+  "updated_at": "2026-05-12",
+  "mirrors": [
+    {
+      "name": "huggingface",
+      "url": "https://huggingface.co/vonishocr",
+      "priority": 1,
+      "region": "global"
+    },
+    {
+      "name": "hf-mirror",
+      "url": "https://hf-mirror.com/vonishocr",
+      "priority": 2,
+      "region": "china"
+    },
+    {
+      "name": "modelscope",
+      "url": "https://modelscope.cn/models/vonishocr",
+      "priority": 3,
+      "region": "china"
+    }
+  ],
+  "languages": [
+    {
+      "code": "ch",
+      "name": "中文（简体）",
+      "script": "Hans",
+      "model_family": "pp-ocrv5",
+      "quality_tiers": ["standard"],
+      "manifest": "pp-ocrv5/ch.json"
+    },
+    {
+      "code": "en",
+      "name": "English",
+      "script": "Latin",
+      "model_family": "pp-ocrv5",
+      "quality_tiers": ["standard"],
+      "manifest": "pp-ocrv5/en.json"
+    }
+  ]
+}

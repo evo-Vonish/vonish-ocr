@@ -25,7 +25,8 @@ def ls(ctx, watch, as_json):
         if as_json:
             print_json(data)
         else:
-            click.clear()
+            if watch:
+                click.clear()
             print_table(rows, [("id", "ID"), ("filename", "FILE"), ("model_tier", "MODEL"), ("status", "STATUS"), ("elapsed_ms", "MS")])
         if not watch:
             return

@@ -13,6 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
+vocr = "cli.main:cli"
 vonishocr = "cli.main:cli"
 
 [tool.setuptools]

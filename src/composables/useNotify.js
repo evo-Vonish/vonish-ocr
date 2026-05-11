@@ -1,65 +1,88 @@
 /**
- * 通知封装 —— 使用 Web Notification API（Tauri WebView2 中天然支持）
- * 替代 tauri-plugin-notification，避免 Windows 上 COM/WinRT 初始化崩溃。
+ * 通知封装 — Tauri 原生吐司优先（应用名 + 系统提示音），Web Notification 兜底
  */
+let tauriAvailable = false
+let tauriNotif = null
+let tauriInitTried = false
 
-let permissionChecked = false
-let permissionGranted = false
-
-async function ensurePermission() {
-  if (permissionChecked) return permissionGranted
-  if (!('Notification' in window)) return false
-  if (Notification.permission === 'granted') {
-    permissionGranted = true
-  } else if (Notification.permission !== 'denied') {
-    const result = await Notification.requestPermission()
-    permissionGranted = result === 'granted'
+async function initTauriNotif() {
+  if (tauriInitTried) return tauriAvailable
+  tauriInitTried = true
+  if (!(typeof window !== 'undefined' && window.__TAURI_INTERNALS__)) return false
+  try {
+    const mod = await import('@tauri-apps/plugin-notification')
+    tauriNotif = mod
+    tauriAvailable = true
+    return true
+  } catch (e) {
+    console.warn('Tauri 通知插件未就绪（需 cargo build），降级到 Web:', e.message || e)
   }
-  permissionChecked = true
-  return permissionGranted
+  return false
 }
 
-/**
- * 检查窗口是否最小化（仅最小化时才应发送通知，避免打扰用户）
- */
 export async function isWindowMinimized() {
-  // Tauri WebView2 中使用 document.hidden 判断窗口是否可见
   return document.hidden
 }
 
-/**
- * 发送系统通知（仅在窗口最小化时，且用户未关闭通知开关）
- * @param {Object} options
- * @param {string} options.title
- * @param {string} options.body
- * @param {boolean} [options.force] 强制发送，无视最小化状态
- */
+async function sendViaTauri(title, body) {
+  if (!tauriAvailable) return false
+  try {
+    const fn = tauriNotif?.sendNotification
+      || tauriNotif?.default?.sendNotification
+    if (!fn) return false
+    // Tauri 原生 Windows 吐司：应用名=VonishOCR，带系统提示音
+    fn({ title, body })
+    return true
+  } catch (e) {
+    console.warn('Tauri 通知失败:', e.message || e)
+  }
+  return false
+}
+
+function sendViaWeb(title, body) {
+  if (!('Notification' in window)) return false
+  if (Notification.permission !== 'granted') return false
+  try {
+    new Notification(title, {
+      body,
+      icon: '/logo.svg',
+      silent: false,
+    })
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
 export async function notify({ title, body, force = false } = {}) {
   try {
     if (!force) {
       const minimized = await isWindowMinimized()
       if (!minimized) return
     }
-    const ok = await ensurePermission()
-    if (!ok) return
-    new Notification(title, { body })
+
+    // 每次尝试初始化 Tauri（确保重试）
+    await initTauriNotif()
+
+    // Tauri 原生优先（应用名正确 + 系统提示音）
+    if (tauriAvailable) {
+      const sent = await sendViaTauri(title, body)
+      if (sent) return
+    }
+
+    // Web 兜底（仅 permission 已 grant 时生效）
+    sendViaWeb(title, body)
   } catch (e) {
     console.warn('通知发送失败:', e)
   }
 }
 
-/**
- * 批量 OCR 完成通知
- */
 export async function notifyBatchComplete(successCount, failCount, totalCount) {
   const title = failCount > 0 ? '批量识别部分完成' : '批量识别完成'
   const body = `共 ${totalCount} 张：成功 ${successCount} 张${failCount > 0 ? `，失败 ${failCount} 张` : ''}`
-  await notify({ title, body })
+  await notify({ title, body, force: true })
 }
 
-/**
- * 批量 OCR 失败通知
- */
 export async function notifyBatchFailed(message) {
-  await notify({ title: '批量识别失败', body: message })
+  await notify({ title: '批量识别失败', body: message, force: true })
 }

@@ -1,6 +1,7 @@
 """Service queue REST API."""
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -39,9 +40,25 @@ async def _tenant_from_key(request: Request, x_api_key: str | None):
 
 
 def _upload_dir() -> Path:
-    root = Path.home() / "AppData" / "Local" / "VonishOCR" / "queue_uploads"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    candidates = []
+    if os.environ.get("VONISH_QUEUE_UPLOAD_DIR"):
+        candidates.append(Path(os.environ["VONISH_QUEUE_UPLOAD_DIR"]))
+    if os.environ.get("LOCALAPPDATA"):
+        candidates.append(Path(os.environ["LOCALAPPDATA"]) / "VonishOCR" / "queue_uploads")
+    candidates.append(Path.home() / ".vonishocr" / "queue_uploads")
+    candidates.append(Path.cwd() / ".vocr" / "queue_uploads")
+
+    for root in candidates:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            marker = root / ".write-test"
+            marker.write_text("ok", encoding="utf-8")
+            marker.unlink(missing_ok=True)
+            return root
+        except Exception:
+            continue
+
+    raise RuntimeError("No writable queue upload directory found. Set VONISH_QUEUE_UPLOAD_DIR to a writable path.")
 
 
 @router.post("/submit")

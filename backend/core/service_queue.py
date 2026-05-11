@@ -40,6 +40,7 @@ class ServiceTaskQueue:
     async def start(self):
         if self._workers:
             return
+        await self.admin_db.mark_interrupted_tasks()
         for idx in range(self.max_workers):
             self._workers.append(asyncio.create_task(self._worker_loop(idx)))
 

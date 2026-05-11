@@ -20,7 +20,7 @@
         @click="selectLang('zh')"
       >
         <span class="oobe-lang-dot" :class="{ 'is-active': oobeData.lang === 'zh' }"></span>
-        <span class="oobe-lang-code">??</span>
+        <span class="oobe-lang-code">中文</span>
         <span class="oobe-lang-name">{{ t('language_zh') }}</span>
       </div>
     </div>

@@ -179,8 +179,7 @@
   }
   .v-modal-container .bottom-sheet { display: none; }
   .v-modal-container .modal-backdrop {
-    background: color-mix(in srgb, var(--v-bg) 78%, transparent);
-    backdrop-filter: blur(4px);
+    background: var(--v-bg);
   }
 }
 

@@ -53,6 +53,12 @@ export function parseApiError(error, fallbackMessage = '请求失败，请重试
   if (parsed?.message) {
     return { code: 'UNKNOWN', message: parsed.message }
   }
+  if (parsed?.detail) {
+    return {
+      code: 'UNKNOWN',
+      message: typeof parsed.detail === 'string' ? parsed.detail : parsed.detail.message || fallbackMessage,
+    }
+  }
   return { code: 'UNKNOWN', message: fallbackMessage }
 }
 
@@ -203,6 +209,37 @@ export async function getAvailableModels() {
 export async function pullModel(modelId) {
   return _backendJson(`/v1/models/${modelId}/pull`, {
     method: 'POST',
+  })
+}
+
+// OCR 语言包管理：后端复用 vocr lang 的 manifest / SQLite 安装记录。
+export async function getLangPacks({ installed = false } = {}) {
+  return _backendJson(`/v1/langpacks?installed=${installed ? 'true' : 'false'}`)
+}
+
+export async function getLangPack(language) {
+  return _backendJson(`/v1/langpacks/${encodeURIComponent(language)}`)
+}
+
+export async function pullLangPack(language, options = {}) {
+  return _backendJson(`/v1/langpacks/${encodeURIComponent(language)}/pull`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  })
+}
+
+export async function verifyLangPacks(options = {}) {
+  return _backendJson('/v1/langpacks/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  })
+}
+
+export async function removeLangPack(language, { keepFiles = false } = {}) {
+  return _backendJson(`/v1/langpacks/${encodeURIComponent(language)}?keep_files=${keepFiles ? 'true' : 'false'}`, {
+    method: 'DELETE',
   })
 }
 

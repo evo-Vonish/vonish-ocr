@@ -76,8 +76,13 @@
     </template>
   </ResponsiveShell>
 
-  <ConfigDrawer v-model:visible="showConfig" @open-ai-center="showAIProviderCenter = true" />
+  <ConfigDrawer
+    v-model:visible="showConfig"
+    @open-ai-center="showAIProviderCenter = true"
+    @open-langpacks="showLanguagePacks = true"
+  />
   <AIProviderModal v-model:visible="showAIProviderCenter" />
+  <LanguagePackModal v-model:visible="showLanguagePacks" />
   <ToastStack />
   <DialogSystem />
   <OobeShell :visible="showOobe" @complete="onOobeComplete" />
@@ -97,6 +102,7 @@ import DocsViewer from './components/DocsViewer.vue'
 import CaseVault from './views/CaseVault.vue'
 import ConfigDrawer from './components/ConfigDrawer.vue'
 import AIProviderModal from './components/AIProviderModal.vue'
+import LanguagePackModal from './components/LanguagePackModal.vue'
 import ToastStack from './components/ToastStack.vue'
 import DialogSystem from './components/DialogSystem.vue'
 import ResponsiveShell from './layouts/ResponsiveShell.vue'
@@ -108,12 +114,14 @@ const configStore = useConfigStore()
 const themeStore = useThemeStore()
 const showConfig = ref(false)
 const showAIProviderCenter = ref(false)
+const showLanguagePacks = ref(false)
 // 服务化后默认进入后端控制台；证据桌作为二级测试工作台保留。
 const showBackendConsole = ref(true)
 const showDocs = ref(false)
 const showVault = ref(false)
 const showPreprocessModal = ref(false)
 const showOobe = ref(false)
+const OOBE_LOCAL_KEY = 'vonishocr:oobe_completed'
 
 const themeButtonLabel = computed(() => {
   return themeStore.resolvedMode === 'light' ? t('topbar_theme_light') : t('topbar_theme_dark')
@@ -202,6 +210,11 @@ onMounted(async () => {
   await configStore.loadConfig()
   configStore.loadModels()
 
+  const localOobeCompleted = window.localStorage.getItem(OOBE_LOCAL_KEY) === 'true'
+  if (localOobeCompleted) {
+    configStore.config.oobe_completed = true
+  }
+
   if (!configStore.config.oobe_completed) {
     showBackendConsole.value = false
     showOobe.value = true
@@ -223,13 +236,18 @@ async function onOobeComplete(data) {
     : data.models.standard.active ? data.models.standard.id
     : 'rapidocr-mobile-cn'
 
-  await configStore.updateConfig({
-    oobe_completed: true,
-    tutorial_completed: data.tutorialCompleted,
-    power_mode: data.performance,
-    ocr_model: activeModel,
-    preload_model: true
-  })
+  window.localStorage.setItem(OOBE_LOCAL_KEY, 'true')
+  try {
+    await configStore.updateConfig({
+      oobe_completed: true,
+      tutorial_completed: data.tutorialCompleted,
+      power_mode: data.performance,
+      ocr_model: activeModel,
+      preload_model: true
+    })
+  } catch (error) {
+    console.warn('OOBE config save failed; local completion marker was kept.', error)
+  }
 
   showBackendConsole.value = false
   showOobe.value = false

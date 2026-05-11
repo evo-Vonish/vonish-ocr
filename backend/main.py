@@ -9,8 +9,14 @@ import traceback
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-# 确保 backend/ 目录在 sys.path 首位，优先解析本地模块
-sys.path.insert(0, str(Path(__file__).parent))
+# 确保 backend/ 目录在 sys.path 首位，优先解析本地模块。
+# 同时加入项目根目录；语言包 GUI 复用 cli.core.langpacks，sidecar 以 backend/main.py
+# 启动时默认看不到仓库根目录，必须显式加入。
+_backend_dir = Path(__file__).parent
+_project_root = _backend_dir.parent
+sys.path.insert(0, str(_backend_dir))
+if str(_project_root) not in sys.path:
+    sys.path.insert(1, str(_project_root))
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -23,6 +29,7 @@ from api.admin import router as admin_router
 from api.metrics import router as metrics_router
 from api.models import router as models_router
 from api.system import router as system_router
+from api.langpacks import router as langpacks_router
 from config.settings import ConfigManager
 
 _is_sidecar = False
@@ -353,6 +360,7 @@ app.include_router(admin_router, prefix="/api/v1/admin")
 app.include_router(admin_router, prefix="/v1/admin")
 app.include_router(metrics_router)
 app.include_router(models_router)
+app.include_router(langpacks_router)
 app.include_router(system_router)
 
 # 挂载 VitePress 文档站，供前端 iframe 内嵌
@@ -437,8 +445,12 @@ if __name__ == "__main__":
 
         # 信号处理（忽略失败）
         try:
-            signal.signal(signal.SIGTERM, _signal_handler)
-            signal.signal(signal.SIGINT, _signal_handler)
+            if os.environ.get("VONISH_IGNORE_CONSOLE_SIGNALS") == "1":
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+            else:
+                signal.signal(signal.SIGTERM, _signal_handler)
+                signal.signal(signal.SIGINT, _signal_handler)
         except Exception:
             pass
 

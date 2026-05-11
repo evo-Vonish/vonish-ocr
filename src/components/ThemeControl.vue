@@ -3,12 +3,12 @@
     <h4>{{ t('config_theme_style') }}</h4>
     <div class="capsule-grid style-grid" role="radiogroup" :aria-label="t('config_theme_style')">
       <button
-        v-for="item in styles"
+        v-for="item in appearances"
         :key="item.key"
         type="button"
         class="theme-capsule"
-        :class="{ active: themeStore.resolvedStyle === item.key }"
-        @click="themeStore.setThemeStyle(item.key)"
+        :class="{ active: themeStore.resolvedAppearance === item.key && !themeStore.resolvedHighContrast }"
+        @click="themeStore.setAppearance(item.key)"
       >
         <span class="capsule-dot"></span>
         <span>{{ t(item.labelKey) }}</span>
@@ -22,7 +22,7 @@
         :key="item.key"
         type="button"
         class="theme-capsule"
-        :class="{ active: themeStore.resolvedMode === item.key }"
+        :class="{ active: themeStore.resolvedMode === item.key && !themeStore.resolvedHighContrast }"
         @click="themeStore.setThemeMode(item.key)"
       >
         <span class="capsule-dot"></span>
@@ -30,10 +30,16 @@
       </button>
     </div>
 
-    <label class="follow-row">
+    <label class="toggle-row">
       <input type="checkbox" :checked="themeStore.followSystem" @change="themeStore.setFollowSystem($event.target.checked)" />
       <span>{{ t('config_follow_system') }}</span>
       <span class="follow-meta">{{ systemLabel }}</span>
+    </label>
+
+    <label class="toggle-row">
+      <input type="checkbox" :checked="themeStore.highContrast" @change="themeStore.setHighContrast($event.target.checked)" />
+      <span>{{ t('theme_high_contrast') }}</span>
+      <span class="follow-meta">{{ themeStore.resolvedHighContrast ? 'ON' : 'OFF' }}</span>
     </label>
 
     <div class="theme-preview">
@@ -47,20 +53,31 @@
         <div class="preview-copy">{{ previewCopy }}</div>
       </div>
     </div>
+
+    <button class="lab-entry" type="button" @click="labVisible = true">
+      <span>
+        <strong>{{ t('theme_appearance_lab') }}</strong>
+        <small>{{ labSummary }}</small>
+      </span>
+      <span class="lab-open">OPEN</span>
+    </button>
+
+    <AppearanceLabModal v-model:visible="labVisible" />
   </section>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useThemeStore } from '../stores/themeStore'
-import { t } from '../i18n'
+import { currentLang, t } from '../i18n'
+import AppearanceLabModal from './AppearanceLabModal.vue'
 
 const themeStore = useThemeStore()
+const labVisible = ref(false)
 
-const styles = [
-  { key: 'desk', labelKey: 'theme_style_desk' },
-  { key: 'mono', labelKey: 'theme_style_mono' },
-  { key: 'hc', labelKey: 'theme_style_hc' },
+const appearances = [
+  { key: 'evidence', labelKey: 'theme_style_evidence' },
+  { key: 'professional', labelKey: 'theme_style_professional' },
 ]
 
 const modes = [
@@ -68,21 +85,31 @@ const modes = [
   { key: 'light', labelKey: 'theme_mode_light' },
 ]
 
-const names = {
-  desk: '证据桌',
-  mono: '黑白审阅',
-  hc: '高对比',
-  dark: '深色',
-  light: '浅色',
-}
+const names = computed(() => ({
+  evidence: t('theme_style_evidence'),
+  professional: t('theme_style_professional'),
+  hc: t('theme_style_hc'),
+  dark: t('theme_mode_dark'),
+  light: t('theme_mode_light'),
+}))
 
-const resolvedLabel = computed(() => `${names[themeStore.resolvedStyle]} · ${names[themeStore.resolvedMode]}`)
-const systemLabel = computed(() => `${names[themeStore.detectedStyle]} / ${names[themeStore.detectedMode]}`)
-const previewCopy = computed(() => {
-  if (themeStore.resolvedStyle === 'desk') return '掌灯青 / 纸骨 / 炭黑'
-  if (themeStore.resolvedStyle === 'mono') return '白 / 黑 / 灰'
-  return '强边界 / 强焦点 / 强可见'
+const resolvedLabel = computed(() => {
+  if (themeStore.resolvedHighContrast) return t('theme_style_hc')
+  return `${names.value[themeStore.resolvedAppearance]} / ${names.value[themeStore.resolvedMode]}`
 })
+
+const systemLabel = computed(() => themeStore.detectedHighContrast ? 'HC' : names.value[themeStore.detectedMode])
+
+const previewCopy = computed(() => {
+  if (themeStore.resolvedHighContrast) return t('theme_preview_hc')
+  if (themeStore.resolvedAppearance === 'professional') return t('theme_preview_professional')
+  return t('theme_preview_evidence')
+})
+
+const labSummary = computed(() => currentLang.value === 'zh'
+  ? '颜色令牌、强调色和安全预览'
+  : 'Color tokens, accent and safe preview'
+)
 </script>
 
 <style scoped>
@@ -100,10 +127,7 @@ const previewCopy = computed(() => {
   gap: var(--s2);
 }
 
-.style-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
+.style-grid,
 .mode-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -114,10 +138,11 @@ const previewCopy = computed(() => {
   place-items: center;
   gap: 2px;
   background: var(--v-bg);
-  border: 1px solid var(--v-border);
+  border: var(--v-border-width) solid var(--v-border);
   border-radius: var(--r3);
   color: var(--v-text-muted);
   cursor: pointer;
+  transition: var(--theme-transition);
 }
 
 .theme-capsule.active {
@@ -138,11 +163,15 @@ const previewCopy = computed(() => {
   border-color: var(--v-accent);
 }
 
-.follow-row {
+.toggle-row {
   display: flex;
   align-items: center;
   gap: var(--s2);
   color: var(--v-text-muted);
+}
+
+.toggle-row input {
+  accent-color: var(--v-accent);
 }
 
 .follow-meta {
@@ -160,19 +189,19 @@ const previewCopy = computed(() => {
   gap: var(--s3);
   padding: var(--s3);
   background: var(--v-bg);
-  border: 1px solid var(--v-border);
+  border: var(--v-border-width) solid var(--v-border);
   border-radius: var(--r3);
 }
 
 .preview-swatches {
   display: flex;
-  gap: 5px;
+  gap: var(--s1);
 }
 
 .swatch {
   width: 22px;
   height: 42px;
-  border: 1px solid var(--v-border);
+  border: var(--v-border-width) solid var(--v-border);
   border-radius: var(--r2);
 }
 
@@ -188,6 +217,42 @@ const previewCopy = computed(() => {
 .preview-copy {
   margin-top: var(--s1);
   color: var(--v-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.lab-entry {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3);
+  background: var(--v-panel);
+  border: var(--v-border-width) solid var(--v-border);
+  border-radius: var(--r3);
+  color: var(--v-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lab-entry strong,
+.lab-entry small {
+  display: block;
+}
+
+.lab-entry small {
+  margin-top: var(--s1);
+  color: var(--v-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.lab-entry:hover {
+  border-color: var(--v-accent);
+}
+
+.lab-open {
+  font-family: var(--font-mono);
+  color: var(--v-accent);
   font-size: var(--fs-caption);
 }
 </style>

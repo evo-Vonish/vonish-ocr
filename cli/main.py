@@ -3,7 +3,7 @@ from pathlib import Path
 
 import click
 
-from cli.core.client import VonishOCRClient
+from cli.core.client import ClientError, VonishOCRClient
 from cli.core.daemon import ensure_service, service_url
 
 
@@ -12,15 +12,23 @@ class RootGroup(click.Group):
         aliases = {"ls": "list"}
         return super().get_command(ctx, aliases.get(cmd_name, cmd_name))
 
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except ClientError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except RuntimeError as exc:
+            raise click.ClickException(str(exc)) from exc
+
 
 @click.group(cls=RootGroup)
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", default=8000, show_default=True)
 @click.option("--api-key", envvar="VONISH_API_KEY", default=None)
 @click.pass_context
-@click.version_option(version="0.1.0", prog_name="vonishocr")
+@click.version_option(version="0.1.0", prog_name="vocr")
 def cli(ctx, host, port, api_key):
-    """VonishOCR - local OCR infrastructure."""
+    """vocr - VonishOCR local OCR infrastructure."""
     ctx.ensure_object(dict)
     base_url = f"http://{host}:{port}"
     ctx.obj["port"] = port
@@ -43,6 +51,8 @@ from cli.commands.vault import vault
 from cli.commands.config import config
 from cli.commands.metrics import metrics, logs
 from cli.commands.system import version, doctor, update, gui
+from cli.commands.theme import theme
+from cli.commands.lang import lang
 
 cli.add_command(serve)
 cli.add_command(stop)
@@ -62,7 +72,9 @@ cli.add_command(version)
 cli.add_command(doctor)
 cli.add_command(update)
 cli.add_command(gui)
+cli.add_command(theme)
+cli.add_command(lang)
 
 
 if __name__ == "__main__":
-    cli()
+    cli(prog_name="vocr")

@@ -1,13 +1,13 @@
 {
   "ocr_model": "cnocr-standard-cn",
-  "oobe_completed": false,
-  "tutorial_completed": false,
+  "oobe_completed": true,
+  "tutorial_completed": true,
   "preprocess": true,
   "auto_rotate": true,
-  "perspective_correct": false,
+  "perspective_correct": true,
   "scene_detect": true,
   "ai": {
-    "enabled": false,
+    "enabled": true,
     "provider": "deepseek",
     "api_key": null,
     "api_base": null,
@@ -35,12 +35,22 @@
       "weight": 5,
       "enabled": true,
       "key_saved": true
+    },
+    {
+      "id": "098f03f5-89f9-4d3b-b4a5-0b11807a6fb0",
+      "name": "",
+      "provider_type": "deepseek",
+      "api_base": "",
+      "model": "deepseek-chat",
+      "weight": 5,
+      "enabled": true,
+      "key_saved": true
     }
   ],
-  "active_ai_scheme_id": "80bd2ee8-6c9b-47f9-8d08-670706b8ee45",
+  "active_ai_scheme_id": "default-deepseek",
   "output_mode": "smart",
   "include_diff": false,
-  "batch_ai_refine": false,
+  "batch_ai_refine": true,
   "redact_sensitive": false,
   "power_mode": "beast",
   "performance_overrides": {},

@@ -45,6 +45,7 @@ desktop.ini
 # ── Temporary / Cache ──
 .temp/
 .cache/
+.vocr/
 *.tmp
 temp/
 .codebuddy/

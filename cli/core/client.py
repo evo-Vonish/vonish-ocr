@@ -58,7 +58,7 @@ class VonishOCRClient:
 
     def submit_ocr(self, file_path, model_tier="auto", priority=0):
         file_path = Path(file_path)
-        boundary = f"----vonishocr-{int(time.time() * 1000)}"
+        boundary = f"----vocr-{int(time.time() * 1000)}"
         parts = []
 
         def add_field(name, value):

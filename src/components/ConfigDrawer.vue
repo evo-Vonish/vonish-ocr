@@ -32,6 +32,8 @@
                 <option value="rapidocr-mobile-cn">{{ t('config_model_ultra') }}</option>
                 <option value="cnocr-standard-cn">{{ t('config_model_standard') }}</option>
               </select>
+              <button class="wide-action" type="button" @click="emit('open-langpacks')">{{ t('config_open_langpacks') }}</button>
+              <p class="hint-text">{{ t('config_langpack_hint') }}</p>
             </section>
 
             <section>
@@ -121,7 +123,7 @@ import ThemeControl from './ThemeControl.vue'
 import { currentLang, setLang, t } from '../i18n'
 
 const props = defineProps({ visible: Boolean })
-const emit = defineEmits(['update:visible', 'open-ai-center'])
+const emit = defineEmits(['update:visible', 'open-ai-center', 'open-langpacks'])
 const configStore = useConfigStore()
 
 function close() {

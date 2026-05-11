@@ -610,6 +610,78 @@ async def pull_model(request: Request, model_id: str):
     return {"model_id": model_id, "status": "installed", "path": str(path)}
 
 
+def _langpack_manager():
+    """延迟加载 CLI 语言包管理器，避免后端启动时引入 CLI 依赖循环。"""
+    from cli.core.langpacks import LangPackManager
+
+    return LangPackManager()
+
+
+def _langpack_error(exc: Exception):
+    """把语言包管理异常转换为前端可读的结构化错误。"""
+    return HTTPException(status_code=400, detail={"code": "LANGPACK_ERROR", "message": str(exc)})
+
+
+@router.get("/v1/langpacks")
+async def list_langpacks(installed: bool = False):
+    """列出可用 / 已安装 OCR 语言包。"""
+    try:
+        return {"items": _langpack_manager().list(include_remote=not installed)}
+    except Exception as e:
+        raise _langpack_error(e)
+
+
+@router.get("/v1/langpacks/{language}")
+async def show_langpack(language: str):
+    """读取单个语言包 manifest 和安装状态。"""
+    try:
+        from cli.core.langpacks import parse_lang_spec
+
+        return _langpack_manager().show(parse_lang_spec(language))
+    except Exception as e:
+        raise _langpack_error(e)
+
+
+@router.post("/v1/langpacks/{language}/pull")
+async def pull_langpack(language: str, payload: dict = Body(default={})):
+    """安装语言包。默认优先复用本地模型；远程下载需前端明确确认 yes=true。"""
+    try:
+        from cli.core.langpacks import parse_lang_spec
+
+        return _langpack_manager().install(
+            parse_lang_spec(language),
+            mirror=payload.get("mirror"),
+            yes=bool(payload.get("yes")),
+            offline=bool(payload.get("offline")),
+        )
+    except Exception as e:
+        raise _langpack_error(e)
+
+
+@router.post("/v1/langpacks/verify")
+async def verify_langpacks(payload: dict = Body(default={})):
+    """校验一个或全部已安装语言包的 SHA256。"""
+    try:
+        from cli.core.langpacks import parse_lang_spec
+
+        language = payload.get("language")
+        spec = parse_lang_spec(language) if language else None
+        return {"result": _langpack_manager().verify(spec, repair=bool(payload.get("repair")))}
+    except Exception as e:
+        raise _langpack_error(e)
+
+
+@router.delete("/v1/langpacks/{language}")
+async def remove_langpack(language: str, keep_files: bool = False):
+    """卸载语言包，可选择只取消注册而保留文件。"""
+    try:
+        from cli.core.langpacks import parse_lang_spec
+
+        return _langpack_manager().remove(parse_lang_spec(language), delete_files=not keep_files)
+    except Exception as e:
+        raise _langpack_error(e)
+
+
 @router.get("/v1/config")
 async def get_config(request: Request):
     return request.app.state.config_manager.load().model_dump()

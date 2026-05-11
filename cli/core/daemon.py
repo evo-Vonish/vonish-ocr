@@ -65,8 +65,6 @@ def wait_ready(port, timeout=120, pid=None):
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:
-        if pid and not is_pid_alive(pid):
-            raise RuntimeError(f"service process exited before ready: pid={pid}")
         try:
             client.health()
             return True
@@ -85,6 +83,11 @@ def start_service(port=8000, foreground=False, profile=None):
     root = project_root()
     env = os.environ.copy()
     env["VONISH_PORT"] = str(port)
+    env["VONISH_HOME"] = str(root)
+    env.setdefault("VONISH_STATE_DIR", str(root / ".vocr" / "cli"))
+    env.setdefault("VONISH_ADMIN_DIR", str(root / ".vocr" / "admin"))
+    env.setdefault("VONISH_QUEUE_UPLOAD_DIR", str(root / ".vocr" / "queue_uploads"))
+    env["VONISH_IGNORE_CONSOLE_SIGNALS"] = "1"
     if profile:
         env["VONISH_PROFILE"] = profile
     script = root / "backend" / "main.py"
@@ -102,27 +105,17 @@ def start_service(port=8000, foreground=False, profile=None):
         if is_pid_alive(proc.pid):
             stop_service()
         raise
-    pid = proc.pid
-    if os.name == "nt":
-        # The service intentionally outlives this CLI process. Close our handle
-        # after startup so later taskkill/stop does not make Popen.__del__ print
-        # an ignored WinError 6 traceback.
-        try:
-            proc._handle.Close()
-            proc._child_created = False
-        except Exception:
-            pass
-    return pid
+    return proc.pid
 
 
 def ensure_service(port=8000):
     status = read_status()
-    if status["pid"] and is_pid_alive(status["pid"]):
-        try:
-            VonishOCRClient(service_url(status["port"])).health()
-            return status["port"]
-        except Exception:
-            pass
+    probe_port = status.get("port") or port
+    try:
+        VonishOCRClient(service_url(probe_port)).health()
+        return probe_port
+    except Exception:
+        pass
     start_service(port=port, foreground=False)
     return port
 
@@ -130,11 +123,12 @@ def ensure_service(port=8000):
 def stop_service():
     status = read_status()
     pid = status.get("pid")
-    if pid and is_pid_alive(pid):
+    if pid:
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            os.kill(pid, signal.SIGTERM)
+            if is_pid_alive(pid):
+                os.kill(pid, signal.SIGTERM)
     pid_file().unlink(missing_ok=True)
     port_file().unlink(missing_ok=True)
     return pid
@@ -142,5 +136,7 @@ def stop_service():
 
 def _creation_flags():
     if os.name == "nt":
-        return 0x08000000
+        create_no_window = 0x08000000
+        create_new_process_group = 0x00000200
+        return create_no_window | create_new_process_group
     return 0

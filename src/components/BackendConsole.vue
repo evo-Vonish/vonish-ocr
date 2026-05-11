@@ -72,6 +72,10 @@
             <span class="mono accent">{{ activeModel?.name || '未加载' }}</span>
             <span class="mono">{{ activeModel?.size || '--' }} · {{ modelStatusText(activeModel?.status) }}</span>
           </div>
+          <div class="button-row langpack-row">
+            <button class="secondary-btn" type="button" @click="showLanguagePacks = true">{{ t('langpack_console_entry') }}</button>
+            <button class="secondary-btn" type="button" @click="openModelsFolder">打开模型目录</button>
+          </div>
 
           <div class="capsule-row">
             <button
@@ -243,6 +247,7 @@ print(res.json())</pre>
         </div>
       </section>
     </div>
+    <LanguagePackModal v-model:visible="showLanguagePacks" />
   </section>
 </template>
 
@@ -263,6 +268,8 @@ import { useTaskStore } from '../stores/taskStore'
 import { showToast } from '../composables/useToast'
 import { downloadBlob } from '../utils/exporters'
 import QueueMonitor from './console/QueueMonitor.vue'
+import LanguagePackModal from './LanguagePackModal.vue'
+import { t } from '../i18n'
 
 defineEmits(['close'])
 
@@ -305,6 +312,7 @@ const serviceSteps = ref([])
 const modelSwitchingId = ref('')
 const serviceBusy = ref(false)
 const busyAction = ref('')
+const showLanguagePacks = ref(false)
 let refreshTimer = null
 
 // 控制台初始数据。真实数据由 /v1/console/status 覆盖。

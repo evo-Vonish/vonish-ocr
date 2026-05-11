@@ -45,8 +45,8 @@ import MiniDeskPreview from './MiniDeskPreview.vue'
 const oobeData = inject('oobeData')
 
 const styles = computed(() => [
-  { key: 'desk', label: t('oobe_style_desk'), desc: t('oobe_style_desk_desc') },
-  { key: 'mono', label: t('oobe_style_mono'), desc: t('oobe_style_mono_desc') },
+  { key: 'evidence', label: t('oobe_style_evidence'), desc: t('oobe_style_evidence_desc') },
+  { key: 'professional', label: t('oobe_style_professional'), desc: t('oobe_style_professional_desc') },
   { key: 'hc', label: t('oobe_style_hc'), desc: t('oobe_style_hc_desc') }
 ])
 

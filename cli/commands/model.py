@@ -4,6 +4,7 @@ from pathlib import Path
 import click
 
 from cli.core.context import get_client
+from cli.core.daemon import project_root
 from cli.core.formatter import print_json, print_table
 
 
@@ -37,7 +38,11 @@ def pull(ctx, name, url, sha256):
 @click.argument("name")
 def rm(name):
     """Remove local model directory."""
-    path = Path("models") / name
+    path = project_root() / "models" / name
+    resolved = path.resolve()
+    models_root = (project_root() / "models").resolve()
+    if models_root not in [resolved, *resolved.parents]:
+        raise click.ClickException(f"refusing to remove outside model directory: {resolved}")
     if not path.exists():
         raise click.ClickException(f"model not found: {name}")
     shutil.rmtree(path)

@@ -1,7 +1,7 @@
-# VonishOCR CLI
+# vocr CLI
 
-VonishOCR is moving to a CLI-first architecture. The CLI talks to the local
-HTTP service started by `vonishocr serve`. If a command needs the service and it
+`vocr` is the CLI-first entry point for VonishOCR. The CLI talks to the local
+HTTP service started by `vocr serve`. If a command needs the service and it
 is not running, the CLI starts it automatically.
 
 ## Install For Development
@@ -10,64 +10,101 @@ is not running, the CLI starts it automatically.
 pip install -e .
 ```
 
+On Windows, the repository also ships lightweight launchers:
+
+```powershell
+.\vocr.cmd --help
+.\vonishocr.cmd --help
+.\install-cli.ps1
+```
+
+`install-cli.ps1` creates `vocr.cmd` and `vonishocr.cmd` under
+`%LOCALAPPDATA%\VonishOCR\bin` and adds that directory to the user PATH.
+
 ## Service
 
 ```bash
-vonishocr serve --port 8000
-vonishocr serve --foreground
-vonishocr status
-vonishocr stop
+vocr serve --port 8000
+vocr serve --foreground
+vocr status
+vocr stop
 ```
 
 ## Models
 
 ```bash
-vonishocr list
-vonishocr list --remote
-vonishocr pull rapidocr-mobile-cn
-vonishocr pull cnocr-standard --url https://example.com/model.onnx
-vonishocr rm onnxtr-standard
-vonishocr load cnocr-standard
+vocr list
+vocr list --remote
+vocr pull rapidocr-mobile-cn
+vocr pull cnocr-standard --url https://example.com/model.onnx
+vocr rm onnxtr-standard
+vocr load cnocr-standard
 ```
+
+## Language Packs
+
+VonishOCR language packs use a two-level JSON index:
+
+- `resources/langpacks/index.json` is the lightweight navigation index.
+- `resources/langpacks/<model-family>/<lang>.json` is the full manifest with
+  model files, SHA256, compatibility, license, and mirror URLs.
+
+```bash
+vocr lang list
+vocr lang list --installed
+vocr lang show ch
+vocr lang pull ch --offline
+vocr lang pull en --yes --mirror hf-mirror
+vocr lang verify ch
+vocr lang rm ch
+```
+
+Installed pack state is stored in SQLite under the CLI state directory. Pulling
+`ch` currently registers the bundled `rapidocr-mobile-cn` ONNX files, verifies
+SHA256, and copies them into `models/langpacks/pp-ocrv5/standard/ch`.
 
 ## OCR
 
 ```bash
-vonishocr ocr invoice.jpg
-vonishocr ocr scan.png --output result.md
-vonishocr ocr book.pdf --model pro --format json
-vonishocr batch ./invoices --model standard --output ./results
+vocr ocr invoice.jpg
+vocr ocr scan.png --output result.md
+vocr ocr book.pdf --model pro --format json
+vocr batch ./invoices --model standard --output ./results
 ```
 
 ## Queue
 
 ```bash
-vonishocr queue ls
-vonishocr queue ls --watch
-vonishocr queue cancel <task_id>
-vonishocr queue logs <task_id>
-vonishocr queue clear
+vocr queue ls
+vocr queue ls --watch
+vocr queue cancel <task_id>
+vocr queue logs <task_id>
+vocr queue clear
 ```
 
 ## Vault
 
 ```bash
-vonishocr vault ls
-vonishocr vault search "2024发票"
-vonishocr vault export <id> --format md
-vonishocr vault rm <id>
+vocr vault ls
+vocr vault search "2024 invoice"
+vocr vault export <id> --format md
+vocr vault rm <id>
 ```
 
 ## Config And Monitoring
 
 ```bash
-vonishocr config get
-vonishocr config set power_mode beast
-vonishocr config reload
-vonishocr metrics
-vonishocr logs --follow
-vonishocr doctor
+vocr config get
+vocr config set power_mode beast
+vocr config reload
+vocr metrics
+vocr logs --follow
+vocr doctor
 ```
 
 External service APIs under `/api/v1/*` require `X-API-Key`. Local CLI commands
 use the `/v1/*` loopback aliases so desktop and SSH workflows remain frictionless.
+
+## Compatibility
+
+`vonishocr` remains a compatibility command and maps to the same CLI entry point as `vocr`. New scripts should use `vocr`.

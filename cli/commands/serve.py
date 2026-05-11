@@ -13,21 +13,31 @@ def serve(ctx, port, foreground, profile):
     port = port or ctx.obj.get("port", 8000)
     result = start_service(port=port, foreground=foreground, profile=profile)
     if not foreground:
-        click.echo(f"VonishOCR service started: pid={result} url={service_url(port)}")
+        click.echo(f"vocr service started: pid={result} url={service_url(port)}")
 
 
 @click.command()
 def stop():
     """Stop background service."""
     pid = stop_service()
-    click.echo(f"Stopped service pid={pid or 'none'}")
+    click.echo(f"stopped service pid={pid or 'none'}")
 
 
 @click.command()
 def status():
     """Show service status."""
     state = read_status()
-    alive = is_pid_alive(state.get("pid"))
+    alive = False
+    if state.get("port"):
+        try:
+            from cli.core.client import VonishOCRClient
+
+            VonishOCRClient(service_url(state.get("port"))).health()
+            alive = True
+        except Exception:
+            alive = is_pid_alive(state.get("pid"))
+    else:
+        alive = is_pid_alive(state.get("pid"))
     click.echo(f"status={'running' if alive else 'stopped'}")
     click.echo(f"pid={state.get('pid') or '-'}")
     click.echo(f"port={state.get('port') or '-'}")

@@ -1,23 +1,19 @@
 <template>
-  <div class="mini-desk" :style="cssVars">
-    <!-- 顶部栏 -->
+  <div class="mini-desk" :style="cssVars" :data-preview-appearance="style">
     <div class="mini-topbar">
       <span class="mini-topbar-brand">VonishOCR</span>
       <span class="mini-topbar-status">LOCAL HELD</span>
     </div>
-    <!-- 主体 -->
     <div class="mini-body">
-      <!-- 左抽屉 -->
       <div class="mini-left">
-        <div class="mini-left-title">EVIDENCE QUEUE</div>
+        <div class="mini-left-title">QUEUE</div>
         <div class="mini-left-line"></div>
         <div class="mini-left-line"></div>
       </div>
-      <!-- 中央台 -->
       <div class="mini-center">
+        <div class="mini-grid"></div>
         <div class="mini-center-ghost">DROP EVIDENCE HERE</div>
       </div>
-      <!-- 复核灯 -->
       <div class="mini-right">
         <div class="mini-right-title">AUDIT</div>
         <div class="mini-right-line"></div>
@@ -31,40 +27,41 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  style: { type: String, default: 'desk' },
+  style: { type: String, default: 'evidence' },
   mode: { type: String, default: 'dark' }
 })
 
 const palette = {
-  'desk-dark': {
+  'evidence-dark': {
     bg: '#11110F', rail: '#1A1916', panel: '#222026',
-    text: '#E7E1D0', muted: '#A39B8F', border: '#3D383F', accent: '#8FF6D2'
+    text: '#E7E1D0', muted: '#A39B8F', border: '#3D383F', accent: '#8FF6D2', grid: '#8FF6D214'
   },
-  'desk-light': {
-    bg: '#ECE6D8', rail: '#F8F3E7', panel: '#FFFBEF',
-    text: '#1A1713', muted: '#5F574B', border: '#C9BEAA', accent: '#0F6B55'
+  'evidence-light': {
+    bg: '#F3EFE4', rail: '#E7E1D0', panel: '#DDD7C8',
+    text: '#11110F', muted: '#6B6560', border: '#C5BFB3', accent: '#8FF6D2', grid: '#1A3D3214'
   },
-  'mono-dark': {
-    bg: '#0A0A0A', rail: '#1A1A1A', panel: '#222222',
-    text: '#F5F5F0', muted: '#B0B0B0', border: '#4A4A4A', accent: '#FFFFFF'
+  'professional-dark': {
+    bg: '#101114', rail: '#181A1F', panel: '#20232A',
+    text: '#ECE7DC', muted: '#A9A49A', border: '#3A3F49', accent: '#8FF6D2', grid: 'transparent'
   },
-  'mono-light': {
-    bg: '#F5F5F0', rail: '#E8E8E3', panel: '#FFFFFF',
-    text: '#0A0A0A', muted: '#7A7A7A', border: '#C0C0B8', accent: '#0A0A0A'
+  'professional-light': {
+    bg: '#F6F5F1', rail: '#FFFFFF', panel: '#ECE9E1',
+    text: '#161615', muted: '#5F5A52', border: '#C9C4BA', accent: '#217C68', grid: 'transparent'
   },
   'hc-dark': {
     bg: '#000000', rail: '#000000', panel: '#000000',
-    text: '#FFFFFF', muted: '#FFFFFF', border: '#FFFFFF', accent: '#FFFFFF'
+    text: '#FFFFFF', muted: '#FFFFFF', border: '#FFFFFF', accent: '#FFFFFF', grid: 'transparent'
   },
   'hc-light': {
-    bg: '#FFFFFF', rail: '#FFFFFF', panel: '#FFFFFF',
-    text: '#000000', muted: '#000000', border: '#000000', accent: '#000000'
+    bg: '#000000', rail: '#000000', panel: '#000000',
+    text: '#FFFFFF', muted: '#FFFFFF', border: '#FFFFFF', accent: '#FFFFFF', grid: 'transparent'
   }
 }
 
 const cssVars = computed(() => {
-  const key = `${props.style}-${props.mode}`
-  const p = palette[key] || palette['desk-dark']
+  const style = props.style === 'desk' ? 'evidence' : props.style === 'mono' ? 'professional' : props.style
+  const key = style === 'hc' ? 'hc-dark' : `${style}-${props.mode}`
+  const p = palette[key] || palette['evidence-dark']
   return {
     '--preview-bg': p.bg,
     '--preview-rail': p.rail,
@@ -72,7 +69,8 @@ const cssVars = computed(() => {
     '--preview-text': p.text,
     '--preview-muted': p.muted,
     '--preview-border': p.border,
-    '--preview-accent': p.accent
+    '--preview-accent': p.accent,
+    '--preview-grid': p.grid
   }
 })
 </script>
@@ -103,7 +101,9 @@ const cssVars = computed(() => {
   color: var(--preview-text);
 }
 
-.mini-topbar-status {
+.mini-topbar-status,
+.mini-left-title,
+.mini-right-title {
   color: var(--preview-accent);
 }
 
@@ -115,43 +115,7 @@ const cssVars = computed(() => {
   padding: 4px;
 }
 
-.mini-left {
-  background: var(--preview-rail);
-  border: 1px solid var(--preview-border);
-  border-radius: var(--r2);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.mini-left-title {
-  color: var(--preview-accent);
-  font-size: 7px;
-  margin-bottom: 2px;
-}
-
-.mini-left-line {
-  height: 8px;
-  background: var(--preview-panel);
-  border: 1px solid var(--preview-border);
-  border-radius: var(--r1);
-}
-
-.mini-center {
-  background: var(--preview-panel);
-  border: 1px solid var(--preview-border);
-  border-radius: var(--r2);
-  display: grid;
-  place-items: center;
-}
-
-.mini-center-ghost {
-  color: var(--preview-muted);
-  font-size: 8px;
-  text-align: center;
-}
-
+.mini-left,
 .mini-right {
   background: var(--preview-rail);
   border: 1px solid var(--preview-border);
@@ -162,16 +126,45 @@ const cssVars = computed(() => {
   gap: 3px;
 }
 
-.mini-right-title {
-  color: var(--preview-accent);
-  font-size: 7px;
+.mini-left-line,
+.mini-right-line {
+  background: var(--preview-panel);
+  border: 1px solid var(--preview-border);
+  border-radius: var(--r1);
+}
+
+.mini-left-line {
+  height: 8px;
 }
 
 .mini-right-line {
   height: 20px;
+}
+
+.mini-center {
+  position: relative;
   background: var(--preview-panel);
   border: 1px solid var(--preview-border);
-  border-radius: var(--r1);
+  border-radius: var(--r2);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.mini-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--preview-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--preview-grid) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.mini-center-ghost {
+  position: relative;
+  color: var(--preview-muted);
+  font-size: 8px;
+  text-align: center;
 }
 
 .mini-right-dot {

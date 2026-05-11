@@ -1,6 +1,7 @@
 """Admin SQLite storage for API keys and service queue tasks."""
 import asyncio
 import hashlib
+import os
 import sqlite3
 import time
 import uuid
@@ -46,9 +47,25 @@ ON queue_tasks(tenant_id, created_at);
 
 
 def admin_base_dir() -> Path:
-    base = Path.home() / "AppData" / "Local" / "VonishOCR" / "admin"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+    candidates = []
+    if os.environ.get("VONISH_ADMIN_DIR"):
+        candidates.append(Path(os.environ["VONISH_ADMIN_DIR"]))
+    if os.environ.get("LOCALAPPDATA"):
+        candidates.append(Path(os.environ["LOCALAPPDATA"]) / "VonishOCR" / "admin")
+    candidates.append(Path.home() / ".vonishocr" / "admin")
+    candidates.append(Path.cwd() / ".vocr" / "admin")
+
+    for base in candidates:
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            marker = base / ".write-test"
+            marker.write_text("ok", encoding="utf-8")
+            marker.unlink(missing_ok=True)
+            return base
+        except Exception:
+            continue
+
+    raise RuntimeError("No writable admin database directory found. Set VONISH_ADMIN_DIR to a writable path.")
 
 
 def admin_db_path() -> Path:
@@ -217,3 +234,21 @@ class AdminDB:
             fetch=True,
         )
         return {row["status"]: row["count"] for row in rows}
+
+    async def mark_interrupted_tasks(self):
+        """Mark tasks left unfinished by a previous service process.
+
+        Queue contents live in memory, while task metadata lives in SQLite. If
+        the service exits mid-task, old queued/processing rows cannot continue
+        after restart unless they are explicitly resubmitted. Marking them as
+        failed prevents CLI polling from waiting forever on stale work.
+        """
+        now = time.time()
+        await self.execute(
+            """
+            UPDATE queue_tasks
+            SET status='failed', completed_at=?, error=COALESCE(error, ?)
+            WHERE status IN ('queued','processing')
+            """,
+            (now, "service interrupted before completion"),
+        )

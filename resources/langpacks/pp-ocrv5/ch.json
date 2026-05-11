@@ -1,0 +1,52 @@
+{
+  "$schema": "https://vonishocr.local/schemas/langpack-manifest-v1.json",
+  "manifest_version": "1.0.0",
+  "model_family": "pp-ocrv5",
+  "language": {
+    "code": "ch",
+    "name": "中文（简体）",
+    "iso_639_1": "zh",
+    "script": "Hans",
+    "is_right_to_left": false
+  },
+  "pack_version": "1.0.0",
+  "quality_tier": "standard",
+  "local_model_hint": "rapidocr-mobile-cn",
+  "engine_compatibility": {
+    "min_engine_version": "0.1.0",
+    "max_engine_version": "0.99.99",
+    "tested_engine_versions": ["0.1.0"],
+    "api_compatibility": "rapidocr_onnx_v1"
+  },
+  "files": [
+    {
+      "role": "detection",
+      "filename": "ch_PP-OCRv5_det_mobile.onnx",
+      "size_bytes": 4819576,
+      "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+      "download_urls": [],
+      "required": true
+    },
+    {
+      "role": "recognition",
+      "filename": "ch_PP-OCRv5_rec_mobile.onnx",
+      "size_bytes": 16631306,
+      "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+      "download_urls": [],
+      "required": true
+    },
+    {
+      "role": "classification",
+      "filename": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+      "size_bytes": 585532,
+      "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+      "download_urls": [],
+      "required": false
+    }
+  ],
+  "metadata": {
+    "license": "Apache-2.0",
+    "publisher": "VonishOCR",
+    "release_date": "2026-05-12"
+  }
+}
