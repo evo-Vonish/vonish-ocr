@@ -261,6 +261,7 @@
   "langpack_refresh": "刷新",
   "langpack_verify_all": "校验全部",
   "langpack_available": "可用语言包",
+  "langpack_search": "搜索语言 / 代码 / 模型族",
   "langpack_loading": "正在读取语言包索引...",
   "langpack_installed": "已安装",
   "langpack_not_installed": "未安装",

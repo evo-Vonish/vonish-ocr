@@ -1,6 +1,7 @@
 """FastAPI vault routes"""
 import logging
 from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -36,6 +37,25 @@ async def create_session(request: Request, data: SessionCreate):
 @router.get("/sessions")
 async def list_sessions(request: Request):
     return await _get_service(request).list_sessions()
+
+
+@router.get("/file/{relative_path:path}")
+async def vault_file(relative_path: str):
+    """Serve vault-local image files through the backend.
+
+    中文说明：
+    前端运行在 Vite/Tauri WebView 里，不能可靠读取 file:// 或自己拼
+    /vault-file 路径。这里做路径校验后返回文件，避免任意文件读取。
+    """
+    from services.thumbnail import resolve_vault_path
+
+    try:
+        path = resolve_vault_path(relative_path)
+    except ValueError:
+        raise HTTPException(400, "Invalid vault file path")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "Vault file not found")
+    return FileResponse(path)
 
 
 @router.get("/evidences")

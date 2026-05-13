@@ -86,6 +86,7 @@
   <ToastStack />
   <DialogSystem />
   <OobeShell :visible="showOobe" @complete="onOobeComplete" />
+  <GlobalProgressBar />
 </template>
 
 <script setup>
@@ -105,6 +106,7 @@ import AIProviderModal from './components/AIProviderModal.vue'
 import LanguagePackModal from './components/LanguagePackModal.vue'
 import ToastStack from './components/ToastStack.vue'
 import DialogSystem from './components/DialogSystem.vue'
+import GlobalProgressBar from './components/GlobalProgressBar.vue'
 import ResponsiveShell from './layouts/ResponsiveShell.vue'
 import OobeShell from './components/OobeShell.vue'
 import { t, setLang } from './i18n'

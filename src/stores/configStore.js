@@ -8,6 +8,7 @@ import {
   openModelDir,
   parseApiError,
   getAISchemes,
+  getAIScheme,
   saveAIScheme,
   setActiveAIScheme,
 } from '../api/tauri_ipc'
@@ -85,6 +86,11 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
+  async function loadAIScheme(schemeId, options = {}) {
+    const data = await getAIScheme(schemeId, options)
+    return data.scheme
+  }
+
   async function upsertAIScheme(scheme) {
     const data = await saveAIScheme(scheme)
     await loadAISchemes()
@@ -133,6 +139,7 @@ export const useConfigStore = defineStore('config', () => {
     updateConfig,
     loadModels,
     loadAISchemes,
+    loadAIScheme,
     upsertAIScheme,
     activateAIScheme,
     downloadModel,

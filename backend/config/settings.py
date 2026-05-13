@@ -32,6 +32,7 @@ class AIScheme(BaseModel):
 
 class UserConfig(BaseModel):
     ocr_model: str = "auto"
+    ocr_language: str = "pp-ocrv5:ch"
     oobe_completed: bool = False
     tutorial_completed: bool = False
     preprocess: bool = True
@@ -93,26 +94,60 @@ class ConfigManager:
                 scheme.pop("api_key", None)
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+    def _scheme_secret_key(self, scheme_id: str) -> str:
+        return f"ai_scheme:{scheme_id}"
+
+    def _get_scheme_secret(self, scheme_id: str) -> Optional[str]:
+        try:
+            return self.secret_store.get_secret(self._scheme_secret_key(scheme_id))
+        except Exception:
+            return None
+
     def list_ai_schemes(self, include_keys: bool = False) -> list[dict]:
         cfg = self.load()
         result = []
         for scheme in cfg.ai_schemes:
             data = scheme.model_dump()
             data.pop("api_key", None)
-            data["key_saved"] = bool(self.secret_store.get_secret(f"ai_scheme:{scheme.id}"))
+            secret = self._get_scheme_secret(scheme.id)
+            data["key_saved"] = bool(secret)
             if include_keys:
-                data["api_key"] = self.secret_store.get_secret(f"ai_scheme:{scheme.id}")
+                data["api_key"] = secret
             result.append(data)
         return result
 
+    def get_ai_scheme(self, scheme_id: str, include_key: bool = False) -> dict:
+        """Return one AI scheme. API Key is only included when explicitly requested."""
+        cfg = self.load()
+        for scheme in cfg.ai_schemes:
+            if scheme.id != scheme_id:
+                continue
+            data = scheme.model_dump()
+            data.pop("api_key", None)
+            secret = self._get_scheme_secret(scheme.id)
+            data["key_saved"] = bool(secret)
+            if include_key:
+                data["api_key"] = secret or ""
+            return data
+        raise ValueError("AI scheme not found")
+
     def upsert_ai_scheme(self, payload: dict) -> AIScheme:
         cfg = self.load()
-        scheme = AIScheme(**payload)
-        if scheme.api_key:
-            self.secret_store.set_secret(f"ai_scheme:{scheme.id}", scheme.api_key)
+        clear_key = bool(payload.pop("clear_key", False))
+        existing = next((s for s in cfg.ai_schemes if s.id == payload.get("id")), None)
+        merged = existing.model_dump() if existing else {}
+        merged.update(payload)
+        scheme = AIScheme(**merged)
+
+        if clear_key:
+            self.secret_store.delete_secret(self._scheme_secret_key(scheme.id))
+            scheme.key_saved = False
+        elif scheme.api_key:
+            self.secret_store.set_secret(self._scheme_secret_key(scheme.id), scheme.api_key)
             scheme.key_saved = True
         else:
-            scheme.key_saved = bool(self.secret_store.get_secret(f"ai_scheme:{scheme.id}"))
+            # Editing metadata with an empty key keeps the encrypted key that was already saved.
+            scheme.key_saved = bool(self._get_scheme_secret(scheme.id))
         scheme.api_key = None
         cfg.ai_schemes = [s for s in cfg.ai_schemes if s.id != scheme.id] + [scheme]
         if not cfg.active_ai_scheme_id:
@@ -125,6 +160,16 @@ class ConfigManager:
         if not any(s.id == scheme_id for s in cfg.ai_schemes):
             raise ValueError("AI scheme not found")
         cfg.active_ai_scheme_id = scheme_id
+        self.save(cfg)
+
+    def delete_ai_scheme(self, scheme_id: str) -> None:
+        cfg = self.load()
+        if not any(s.id == scheme_id for s in cfg.ai_schemes):
+            raise ValueError("AI scheme not found")
+        cfg.ai_schemes = [s for s in cfg.ai_schemes if s.id != scheme_id]
+        self.secret_store.delete_secret(self._scheme_secret_key(scheme_id))
+        if cfg.active_ai_scheme_id == scheme_id:
+            cfg.active_ai_scheme_id = cfg.ai_schemes[0].id if cfg.ai_schemes else None
         self.save(cfg)
 
     def get_active_ai_scheme_with_failover(self) -> list[dict]:

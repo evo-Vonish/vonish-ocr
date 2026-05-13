@@ -6,7 +6,7 @@
     </div>
 
     <div class="detail-thumb">
-      <img v-if="evidence.original_url" :src="evidence.original_url" alt="" />
+      <img v-if="assetUrl(evidence.original_url || evidence.original_copy_path)" :src="assetUrl(evidence.original_url || evidence.original_copy_path)" alt="" />
       <div v-else class="no-preview">NO PREVIEW</div>
     </div>
 
@@ -21,22 +21,22 @@
     </div>
 
     <div class="detail-tabs">
-      <button :class="{ active: tab === 'raw' }" @click="tab = 'raw'">原始</button>
-      <button :class="{ active: tab === 'refined' }" @click="tab = 'refined'">精修</button>
-      <button :class="{ active: tab === 'diff' }" @click="tab = 'diff'">Diff</button>
+      <button :class="{ active: tab === 'raw' }" type="button" @click="tab = 'raw'">原始</button>
+      <button :class="{ active: tab === 'refined' }" type="button" @click="tab = 'refined'">精修</button>
+      <button :class="{ active: tab === 'diff' }" type="button" @click="tab = 'diff'">Diff</button>
     </div>
 
     <div class="detail-text">
-      <MdRender v-if="tab === 'raw'" :text="evidence.raw_text || '暂无'" />
+      <MdRender v-if="tab === 'raw'" :text="evidence.raw_text || '暂无内容'" />
       <MdRender v-else-if="tab === 'refined'" :text="evidence.refined_text || '暂无精修结果'" />
       <pre v-else>{{ evidence.diff_json || '无差异记录' }}</pre>
     </div>
 
     <div class="detail-actions">
-      <button class="action-btn" @click="$emit('reprocess')">重新识别</button>
-      <button class="action-btn primary" @click="$emit('export')">导出</button>
-      <button class="action-btn" @click="$emit('move')">移至案件组</button>
-      <button class="action-btn danger" @click="$emit('delete')">删除</button>
+      <button class="action-btn" type="button" @click="$emit('reprocess')">重新识别</button>
+      <button class="action-btn primary" type="button" @click="$emit('export')">导出</button>
+      <button class="action-btn" type="button" @click="$emit('move')">移至案卷组</button>
+      <button class="action-btn danger" type="button" @click="$emit('delete')">删除</button>
     </div>
   </div>
 </template>
@@ -45,14 +45,33 @@
 import { ref } from 'vue'
 import MdRender from '../MdRender.vue'
 
-defineProps({ evidence: { type: Object, default: () => ({}) } })
+const props = defineProps({
+  evidence: { type: Object, default: () => ({}) },
+  backendBase: { type: String, default: '' },
+})
 defineEmits(['close', 'reprocess', 'export', 'move', 'delete'])
 
 const tab = ref('raw')
 
-function formatSize(b) { if (!b) return '--'; return b < 1048576 ? (b / 1024).toFixed(1) + 'KB' : (b / 1048576).toFixed(1) + 'MB' }
-function formatConf(v) { return v != null ? (v * 100).toFixed(1) + '%' : '--' }
-function statusText(s) { return { complete: '完成', failed: '失败', processing: '处理中' }[s] || s }
+function assetUrl(url) {
+  if (!url) return ''
+  if (/^(https?:|file:|data:|blob:)/.test(url)) return url
+  if (url.startsWith('/')) return `${props.backendBase}${url}`
+  return `${props.backendBase}/vault/file/${encodeURI(String(url).replaceAll('\\', '/'))}`
+}
+
+function formatSize(b) {
+  if (!b) return '--'
+  return b < 1048576 ? `${(b / 1024).toFixed(1)}KB` : `${(b / 1048576).toFixed(1)}MB`
+}
+
+function formatConf(v) {
+  return v != null ? `${(v * 100).toFixed(1)}%` : '--'
+}
+
+function statusText(s) {
+  return { complete: '完成', failed: '失败', processing: '处理中', needs_review: '待复核' }[s] || s || '--'
+}
 </script>
 
 <style scoped>
@@ -109,12 +128,20 @@ function statusText(s) { return { complete: '完成', failed: '失败', processi
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: var(--s2);
   font-size: var(--fs-caption);
   color: var(--v-text-muted);
 }
 
-.info-row b { color: var(--v-text); font-family: var(--font-mono); font-size: 11px; }
+.info-row b {
+  color: var(--v-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+  word-break: break-all;
+}
 .info-row .accent { color: var(--v-accent); }
+.info-row .failed { color: var(--v-error); }
 
 .detail-tabs {
   display: flex;

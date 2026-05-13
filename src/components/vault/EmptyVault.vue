@@ -9,7 +9,7 @@
       </svg>
     </div>
     <h2 class="empty-title">暂无归档证据</h2>
-    <p class="empty-desc">识别过的文件将自动归档至此，原文件删除后仍可追溯。</p>
+    <p class="empty-desc">识别完成的文件会自动归档到这里。即使原始任务被清理，案卷库也能保留文本、缩略图和复核记录。</p>
     <button class="empty-btn" type="button" @click="$emit('go-desk')">前往证据桌</button>
   </div>
 </template>
@@ -41,7 +41,7 @@ defineEmits(['go-desk'])
 .empty-desc {
   font-size: 13px;
   color: var(--v-text-muted);
-  max-width: 360px;
+  max-width: 420px;
   line-height: 1.6;
 }
 

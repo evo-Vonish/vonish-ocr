@@ -261,6 +261,7 @@
   "langpack_refresh": "REFRESH",
   "langpack_verify_all": "VERIFY ALL",
   "langpack_available": "AVAILABLE PACKS",
+  "langpack_search": "Search language / code / model family",
   "langpack_loading": "Reading language pack index...",
   "langpack_installed": "INSTALLED",
   "langpack_not_installed": "NOT INSTALLED",

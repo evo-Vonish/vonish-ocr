@@ -37,33 +37,25 @@
               </div>
 
               <div v-if="loading" class="loading-panel">{{ t('langpack_loading') }}</div>
-              <div v-else class="pack-grid">
-                <article
+              <div v-else-if="!filteredItems.length" class="loading-panel">{{ t('langpack_select_hint') }}</div>
+              <div v-else class="pack-grid" role="listbox" :aria-label="t('langpack_available')">
+                <button
                   v-for="pack in filteredItems"
-                  :key="`${pack.model_family}:${pack.name}`"
-                  class="pack-card"
-                  :class="{ active: selected?.name === pack.name, installed: pack.installed === 'yes' }"
+                  :key="packSpec(pack)"
+                  class="pack-row"
+                  :class="{ active: selected && packSpec(selected) === packSpec(pack), installed: pack.installed === 'yes' }"
+                  type="button"
+                  role="option"
+                  :aria-selected="selected && packSpec(selected) === packSpec(pack)"
+                  @click="select(pack)"
                 >
-                  <button class="pack-main" type="button" @click="select(pack)">
                     <span class="pack-code">{{ pack.name }}</span>
                     <span class="pack-copy">
                       <strong>{{ pack.language }}</strong>
                       <small>{{ pack.model_family }} · {{ pack.quality }} · {{ pack.size_mb }} MB</small>
                     </span>
                     <span class="pack-state">{{ pack.installed === 'yes' ? t('langpack_installed') : t('langpack_not_installed') }}</span>
-                  </button>
-                  <div class="pack-actions">
-                    <button class="v-state-tab" type="button" :disabled="busy" @click="installSmart(pack)">
-                      {{ installLabel(pack) }}
-                    </button>
-                    <button class="v-state-tab" type="button" :disabled="busy || pack.installed !== 'yes'" @click="verifyOne(pack)">
-                      {{ t('langpack_verify') }}
-                    </button>
-                    <button class="v-state-tab danger" type="button" :disabled="busy || pack.installed !== 'yes'" @click="remove(pack)">
-                      {{ t('langpack_remove') }}
-                    </button>
-                  </div>
-                </article>
+                </button>
               </div>
             </main>
 
@@ -85,9 +77,17 @@
                     <small>{{ sizeMb(file.size_bytes) }} MB</small>
                   </div>
                 </div>
-                <button class="primary-action" type="button" :disabled="busy" @click="installRemote">
-                  {{ t('langpack_install_remote') }}
+                <button class="primary-action" type="button" :disabled="busy || !selected" @click="installSmart()">
+                  {{ selected ? installLabel(selected) : t('langpack_install_remote') }}
                 </button>
+                <div class="detail-actions">
+                  <button class="ghost-action" type="button" :disabled="busy || selected?.installed !== 'yes'" @click="verifyOne()">
+                    {{ t('langpack_verify') }}
+                  </button>
+                  <button class="ghost-action danger" type="button" :disabled="busy || selected?.installed !== 'yes'" @click="remove()">
+                    {{ t('langpack_remove') }}
+                  </button>
+                </div>
                 <p class="hint-text">{{ t('langpack_remote_hint') }}</p>
               </template>
               <template v-else>
@@ -162,7 +162,7 @@ async function load() {
     if (!selected.value && items.value.length) {
       await select(items.value[0])
     } else if (selected.value) {
-      await select(items.value.find(item => item.name === selected.value.name) || items.value[0])
+      await select(items.value.find(item => packSpec(item) === packSpec(selected.value)) || items.value[0])
     }
   } catch (e) {
     toastError(e, t('langpack_load_failed'))
@@ -175,7 +175,7 @@ async function select(pack) {
   if (!pack) return
   selected.value = pack
   try {
-    detail.value = await getLangPack(pack.name)
+    detail.value = await getLangPack(packSpec(pack))
   } catch (e) {
     detail.value = null
     toastError(e, t('langpack_load_failed'))
@@ -183,10 +183,11 @@ async function select(pack) {
 }
 
 async function installLocal(pack = selected.value) {
+  pack = normalizePackArg(pack)
   if (!pack) return
   busy.value = true
   try {
-    await pullLangPack(pack.name, { offline: true })
+    await pullLangPack(packSpec(pack), { offline: true })
     showToast({ type: 'success', message: t('langpack_install_done'), duration: 2400 })
     await load()
   } catch (e) {
@@ -197,6 +198,7 @@ async function installLocal(pack = selected.value) {
 }
 
 async function installSmart(pack = selected.value) {
+  pack = normalizePackArg(pack)
   if (!pack) return
   if (pack.local_available) {
     await installLocal(pack)
@@ -206,10 +208,11 @@ async function installSmart(pack = selected.value) {
 }
 
 async function installRemote(pack = selected.value) {
+  pack = normalizePackArg(pack)
   if (!pack) return
   busy.value = true
   try {
-    await pullLangPack(pack.name, { yes: true })
+    await pullLangPack(packSpec(pack), { yes: true })
     showToast({ type: 'success', message: t('langpack_install_done'), duration: 2400 })
     await load()
   } catch (e) {
@@ -225,11 +228,21 @@ function installLabel(pack) {
   return t('langpack_install_remote')
 }
 
+function normalizePackArg(pack) {
+  if (!pack || pack instanceof Event || !pack.name) return selected.value
+  return pack
+}
+
+function packSpec(pack) {
+  if (!pack) return ''
+  return `${pack.model_family || 'pp-ocrv5'}:${pack.name}`
+}
+
 async function verifyOne(pack = selected.value) {
   if (!pack) return
   busy.value = true
   try {
-    const data = await verifyLangPacks({ language: pack.name })
+    const data = await verifyLangPacks({ language: packSpec(pack) })
     lastVerify.value = data.result
     showToast({ type: verifyOk.value ? 'success' : 'error', message: verifyOk.value ? t('langpack_verify_ok') : t('langpack_verify_failed'), duration: 2400 })
   } catch (e) {
@@ -256,7 +269,7 @@ async function remove(pack = selected.value) {
   if (!pack) return
   busy.value = true
   try {
-    await removeLangPack(pack.name)
+    await removeLangPack(packSpec(pack))
     showToast({ type: 'success', message: t('langpack_remove_done'), duration: 2200 })
     await load()
   } catch (e) {
@@ -436,30 +449,29 @@ function toastError(error, fallback) {
   overflow: auto;
 }
 
-.pack-card {
-  background: var(--v-rail);
-  border: var(--v-border-width) solid var(--v-border);
-  border-radius: var(--r3);
-  overflow: hidden;
-}
-
-.pack-card.active {
-  border-color: var(--v-accent);
-  box-shadow: var(--glow-soft);
-}
-
-.pack-main {
+.pack-row {
   width: 100%;
+  min-height: 58px;
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--s3);
   padding: var(--s3);
-  background: transparent;
-  border: 0;
+  background: var(--v-rail);
+  border: var(--v-border-width) solid var(--v-border);
+  border-radius: var(--r3);
   color: var(--v-text);
   text-align: left;
   cursor: pointer;
+}
+
+.pack-row.active {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+}
+
+.pack-row.installed .pack-code {
+  border-color: var(--v-accent);
 }
 
 .pack-code {
@@ -502,17 +514,30 @@ function toastError(error, fallback) {
   color: var(--v-accent);
 }
 
-.pack-actions {
-  display: flex;
+.detail-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s2);
-  padding: 0 var(--s3) var(--s3);
+  margin-top: var(--s2);
 }
 
-.pack-actions .v-state-tab {
-  flex: 1;
+.pack-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  justify-content: end;
 }
 
-.v-state-tab.danger {
+.pack-badge {
+  padding: 2px var(--s2);
+  border: var(--v-border-width) solid var(--v-border);
+  border-radius: var(--r2);
+  color: var(--v-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+
+.ghost-action.danger {
   border-color: var(--v-error);
   color: var(--v-error);
 }

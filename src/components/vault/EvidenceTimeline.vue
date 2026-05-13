@@ -3,19 +3,24 @@
     <div v-if="loading" class="timeline-empty">加载中...</div>
     <div v-else-if="!evidences.length" class="timeline-empty">暂无证据</div>
     <div v-else class="timeline-grid">
-      <div
+      <article
         v-for="ev in evidences"
         :key="ev.id"
         class="ev-card"
         :class="{ selected: selectedIds.includes(ev.id) }"
-        @click="$emit('toggle', ev.id)"
-        @dblclick="$emit('select', ev)"
+        @click="$emit('select', ev)"
       >
-        <div class="ev-check" :class="{ on: selectedIds.includes(ev.id) }">
+        <button
+          class="ev-check"
+          :class="{ on: selectedIds.includes(ev.id) }"
+          type="button"
+          :aria-label="selectedIds.includes(ev.id) ? '取消选择' : '选择证据'"
+          @click.stop="$emit('toggle', ev.id)"
+        >
           <span v-if="selectedIds.includes(ev.id)">✓</span>
-        </div>
+        </button>
         <div class="ev-thumb">
-          <div v-if="ev.thumbnail_path" class="thumb-img" :style="{ backgroundImage: `url(/vault-file/${ev.thumbnail_path})` }" />
+          <div v-if="thumbUrl(ev)" class="thumb-img" :style="{ backgroundImage: `url(${thumbUrl(ev)})` }" />
           <div v-else class="thumb-placeholder">NO IMAGE</div>
         </div>
         <div class="ev-meta">
@@ -26,28 +31,37 @@
             {{ statusText(ev.status) }}
           </span>
         </div>
-      </div>
+      </article>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   evidences: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   selectedIds: { type: Array, default: () => [] },
+  backendBase: { type: String, default: '' },
 })
 defineEmits(['select', 'toggle'])
 
+function thumbUrl(ev) {
+  const url = ev.thumbnail_url || ev.thumbnail_path
+  if (!url) return ''
+  if (/^(https?:|file:|data:|blob:)/.test(url)) return url
+  if (url.startsWith('/')) return `${props.backendBase}${url}`
+  return `${props.backendBase}/vault/file/${encodeURI(url.replaceAll('\\', '/'))}`
+}
+
 function formatSize(bytes) {
   if (!bytes) return '--'
-  if (bytes < 1024) return bytes + 'B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + 'MB'
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
 function statusText(s) {
-  return { complete: '完成', failed: '失败', processing: '处理中', needs_review: '待复核' }[s] || s
+  return { complete: '完成', failed: '失败', processing: '处理中', needs_review: '待复核' }[s] || s || '--'
 }
 </script>
 
@@ -90,21 +104,23 @@ function statusText(s) {
 .ev-check {
   position: absolute;
   top: var(--s1); left: var(--s1);
-  width: 16px; height: 16px;
+  width: 18px; height: 18px;
   border: 1px solid var(--v-border-strong);
   border-radius: var(--r1);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 11px;
   color: transparent;
   z-index: 1;
   background: var(--v-rail);
+  cursor: pointer;
 }
 
 .ev-check.on {
   border-color: var(--v-accent);
-  color: var(--v-accent);
+  color: var(--v-coal);
+  background: var(--v-accent);
 }
 
 .ev-thumb {
@@ -143,7 +159,6 @@ function statusText(s) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
 }
 
 .ev-size {
@@ -169,7 +184,6 @@ function statusText(s) {
   background: currentColor;
 }
 
-.ev-status.complete .status-dot { animation: none; }
 .ev-status.failed .status-dot { animation: shake 400ms ease-in-out infinite; }
 
 @keyframes shake {

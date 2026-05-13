@@ -1,91 +1,107 @@
 <template>
-  <section style="height: 100%; display: flex; flex-direction: column; min-height: 0;">
-    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s3);">
+  <section class="eq-root">
+    <!-- 标题栏 + 动画计数 -->
+    <div class="eq-head">
       <div>
         <div class="v-micro">{{ t('evidence_queue_title') }}</div>
-        <div class="v-title" style="font-size: var(--fs-h2); margin-top: var(--s1);">{{ t('evidence_queue_subtitle') }}</div>
+        <div class="v-title eq-subtitle">{{ t('evidence_queue_subtitle') }}</div>
       </div>
-      <span class="v-mono-accent" style="font-size: var(--fs-display); line-height: 1;">
-        <AnimatedCounter :value="taskStore.tasks.length" :pad="2" />
+      <span class="eq-count">
+        <FlipCounter :value="taskStore.tasks.length" />
       </span>
     </div>
 
-    <div class="v-state-tabs" style="height: auto; flex-wrap: wrap; margin-bottom: var(--s3);">
-      <button class="v-state-tab" type="button" :class="{ 'is-active': isAllSelected }" style="flex: 1 1 calc(50% - var(--s2));" @click="toggleSelectAll">
+    <!-- 操作按钮组 -->
+    <div class="eq-actions">
+      <button class="eq-act-btn" type="button" :class="{ on: isAllSelected }" @click="toggleSelectAll">
         {{ t('btn_select_all') }}
       </button>
-      <button class="v-state-tab" type="button" :class="{ 'is-active': selectedDoneCount > 0 }" :disabled="selectedDoneCount === 0" style="flex: 1 1 calc(50% - var(--s2));" @click="saveSelected">
+      <button class="eq-act-btn" type="button" :disabled="selectedDoneCount === 0" @click="saveSelected">
         {{ t('btn_save_selected') }}
       </button>
-      <button class="v-state-tab" type="button" :disabled="selectedCount === 0" style="flex: 1 1 100%; background: var(--v-error); color: var(--v-paper); border-color: var(--v-error);" @click="clearSelected">
+      <button class="eq-act-btn danger" type="button" :disabled="selectedCount === 0" @click="clearSelected">
         {{ t('btn_clear_selected') }}
       </button>
     </div>
 
-    <div style="display: flex; gap: var(--s2); margin-bottom: var(--s3);">
-      <button class="v-export-btn" type="button" :disabled="selectedRunnable.length === 0 || taskStore.isProcessing" style="flex: 2; height: 40px;" @click="startOCR">
-        {{ t('btn_start_ocr') }} <span class="v-mono" style="color: var(--v-coal);">{{ selectedRunnable.length }}</span>
+    <!-- 启动 + 上传 行 -->
+    <div class="eq-launch">
+      <button class="eq-start-btn" type="button" :disabled="selectedRunnable.length === 0 || taskStore.isProcessing" @click="startOCR">
+        {{ t('btn_start_ocr') }}
+        <span class="eq-start-num">{{ selectedRunnable.length }}</span>
       </button>
-      <button class="v-state-tab" type="button" style="flex: 1; height: 40px; border-color: var(--v-accent); color: var(--v-accent);" @click="fileInput.click()">
+      <button class="eq-upload-btn" type="button" @click="fileInput.click()">
         {{ t('btn_upload') }}
       </button>
       <input ref="fileInput" type="file" multiple accept="image/*,.pdf" hidden @change="onFileSelect" />
     </div>
 
-    <div class="v-model-list" style="min-height: 0; overflow: auto;">
+    <!-- 队列列表 -->
+    <div class="eq-list">
       <button
-        v-for="file in taskStore.tasks"
+        v-for="file in sortedTasks"
         :key="file.id"
         type="button"
-        class="v-card"
-        :class="{ 'is-active': taskStore.currentTaskId === file.id || file.selected, 'is-muted': file.restored && !taskStore.getResult(file.id) }"
-        style="width: 100%; display: grid; grid-template-columns: 16px 40px minmax(0, 1fr) 24px; align-items: center; gap: var(--s3); text-align: left;"
+        class="eq-item"
+        :class="{
+          current: taskStore.currentTaskId === file.id,
+          done: file.status === 'done',
+          failed: file.status === 'failed',
+          processing: file.status === 'processing',
+          'is-muted': file.restored && !taskStore.getResult(file.id)
+        }"
         @click="taskStore.setCurrentTask(file.id)"
       >
+        <!-- 复选框 -->
         <span
-          style="width: var(--s4); height: var(--s4); display: grid; place-items: center; border: 1px solid var(--v-border); border-radius: var(--r1); background: var(--v-bg); color: var(--v-accent);"
-          :style="file.selected ? 'border-color: var(--v-accent); background: var(--v-accent-16);' : ''"
+          class="eq-cb"
+          :class="{ on: file.selected }"
           @click.stop="taskStore.setTaskSelection(file.id, !file.selected)"
         >
           <svg v-if="file.selected" viewBox="0 0 12 12" aria-hidden="true">
-            <path d="M2 6.5L4.5 9L10 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            <path d="M2 6.5L4.5 9L10 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
           </svg>
         </span>
-        <img v-if="file.thumb" :src="file.thumb" alt="" style="width: 40px; height: 40px; object-fit: cover; border: 1px solid var(--v-border); border-radius: var(--r1);" />
-        <span v-else style="width: 40px; height: 40px; display: grid; place-items: center; background: var(--v-bg); border: 1px solid var(--v-border); border-radius: var(--r1);" class="v-micro">OCR</span>
-        <span style="min-width: 0;">
-          <span class="v-card-title" style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ file.name }}</span>
-          <span class="v-card-meta">{{ formatSize(file.size) }} · {{ statusText(file.status) }}<span v-if="file.restored"> · {{ t('queue_history') }}</span></span>
+
+        <!-- 缩略图 -->
+        <img v-if="file.thumb" :src="file.thumb" alt="" class="eq-thumb" />
+        <span v-else class="eq-thumb-placeholder" aria-hidden="true">OCR</span>
+
+        <!-- 文件名 + 元信息 -->
+        <span class="eq-info">
+          <span class="eq-name">{{ file.name }}</span>
+          <span class="eq-meta">
+            <span>{{ formatSize(file.size) }}</span>
+            <span class="eq-sep">·</span>
+            <span :class="statusClass(file.status)">{{ statusText(file.status) }}</span>
+            <span v-if="file.restored" class="eq-sep">·</span>
+            <span v-if="file.restored" class="eq-meta-tag">{{ t('queue_history') }}</span>
+          </span>
         </span>
-        <span
-          :title="t('btn_remove_evidence')"
-          style="width: var(--s6); height: var(--s6); display: grid; place-items: center; border: 1px solid var(--v-border); border-radius: var(--r2); color: var(--v-text-muted);"
-          @click.stop="taskStore.removeTask(file.id)"
-        >
-          <svg viewBox="0 0 12 12" aria-hidden="true" style="width: var(--s3); height: var(--s3);">
+
+        <!-- 删除 -->
+        <span class="eq-rm" :title="t('btn_remove_evidence')" @click.stop="taskStore.removeTask(file.id)">
+          <svg viewBox="0 0 12 12" aria-hidden="true">
             <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
           </svg>
         </span>
       </button>
     </div>
 
+    <!-- 底部拖拽区 -->
     <div
-      class="v-dropzone"
-      style="width: 100%; height: 80px; min-height: 80px; margin-top: var(--s3); padding: var(--s3); display: grid; place-items: center; cursor: pointer;"
-      :style="isDragging ? 'border: 1px solid var(--v-accent); background: var(--v-panel);' : ''"
+      class="eq-drop"
+      :class="{ over: isDragging }"
       @dragenter.prevent="isDragging = true"
       @dragover.prevent="isDragging = true"
       @dragleave.prevent="isDragging = false"
       @drop.prevent="onDrop"
       @click="fileInput.click()"
     >
-      <div style="display: grid; place-items: center; gap: var(--s1);">
-        <svg class="v-model-icon" style="width: 24px; height: 24px; color: var(--v-text-muted);" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 4V16M12 16L8 12M12 16L16 12M4 17V19C4 20 5 21 6 21H18C19 21 20 20 20 19V17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <div class="v-card-title" style="font-size: var(--fs-small); color: var(--v-text-muted);">{{ t('queue_empty_ghost') }}</div>
-        <div class="v-caption">{{ t('queue_empty_sub') }}</div>
-      </div>
+      <svg class="eq-drop-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 4V16M12 16L8 12M12 16L16 12M4 17V19C4 20 5 21 6 21H18C19 21 20 20 20 19V17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="eq-drop-text">{{ t('queue_empty_ghost') }}</span>
     </div>
   </section>
 </template>
@@ -98,7 +114,7 @@ import { ocrBatch, createBatchWebSocket, getBatchResults, getBatchStatus, parseA
 import { showToast } from '../composables/useToast'
 import { useFileUpload } from '../composables/useFileUpload'
 import { exportBatch } from '../utils/exporters'
-import AnimatedCounter from './AnimatedCounter.vue'
+import FlipCounter from './FlipCounter.vue'
 import { t } from '../i18n'
 
 const taskStore = useTaskStore()
@@ -107,6 +123,12 @@ const { addFiles } = useFileUpload()
 const fileInput = ref(null)
 const isDragging = ref(false)
 let ws = null
+
+// ── 排序：已完成 → 失败 → 处理中 → 待处理 ──
+const statusOrder = { done: 0, failed: 1, processing: 2, queued: 3, pending: 4, preprocessing: 5, refining: 6 }
+const sortedTasks = computed(() =>
+  [...taskStore.tasks].sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9))
+)
 
 const selectedCount = computed(() => taskStore.tasks.filter(t => t.selected).length)
 const selectedRunnable = computed(() => taskStore.tasks.filter(t => t.selected && t.base64 && !t.restored))
@@ -165,9 +187,7 @@ async function startOCR() {
         if (typeof msg.index === 'number' && selected[msg.index]) {
           applyBatchItem(selected[msg.index], msg)
         }
-        if (msg.total > 0 && msg.completed >= msg.total) {
-          resolve(true)
-        }
+        if (msg.total > 0 && msg.completed >= msg.total) resolve(true)
       })
     })
     const doneFromPoll = waitBatchDone(task_id)
@@ -260,4 +280,346 @@ function statusText(status) {
     failed: t('queue_failed'),
   })[status] || status
 }
+
+function statusClass(status) {
+  return {
+    done: 'eq-status-done',
+    failed: 'eq-status-failed',
+    processing: 'eq-status-processing',
+    preprocessing: 'eq-status-processing',
+    refining: 'eq-status-processing',
+  }[status] || ''
+}
 </script>
+
+<style scoped>
+.eq-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── 标题 + 动画计数 ── */
+.eq-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+  flex-shrink: 0;
+}
+
+.eq-subtitle {
+  font-size: var(--fs-h2);
+  margin-top: var(--s1);
+}
+
+.eq-count {
+  font-family: var(--font-mono);
+  font-size: clamp(24px, 3vw, var(--fs-display));
+  color: var(--v-accent);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ── 操作按钮组 ── */
+.eq-actions {
+  display: flex;
+  gap: var(--s1);
+  margin-bottom: var(--s3);
+  flex-shrink: 0;
+}
+
+.eq-act-btn {
+  flex: 1;
+  min-height: 36px;
+  padding: 0 var(--s2);
+  background: transparent;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
+  color: var(--v-text-muted);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.eq-act-btn.on {
+  border-color: var(--v-accent);
+  color: var(--v-text);
+}
+
+.eq-act-btn.danger {
+  color: var(--v-error);
+  border-color: var(--v-border);
+}
+
+.eq-act-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.eq-act-btn:not(:disabled):hover { border-color: var(--v-border-strong); color: var(--v-text); }
+
+/* ── 启动 + 上传 ── */
+.eq-launch {
+  display: flex;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+  flex-shrink: 0;
+}
+
+.eq-start-btn {
+  flex: 2;
+  min-height: 40px;
+  border: none;
+  border-radius: var(--r3);
+  background: var(--v-accent);
+  color: var(--v-coal);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  transition: background 0.15s;
+}
+
+.eq-start-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.eq-start-btn:not(:disabled):hover { background: color-mix(in srgb, var(--v-accent) 80%, white); }
+
+.eq-start-num {
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: var(--r1);
+  background: color-mix(in srgb, var(--v-coal) 18%, transparent);
+}
+
+.eq-upload-btn {
+  flex: 1;
+  min-height: 40px;
+  background: transparent;
+  border: 1px solid var(--v-accent);
+  border-radius: var(--r3);
+  color: var(--v-accent);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.eq-upload-btn:hover { background: var(--v-accent-08); }
+
+/* ── 队列列表 ── */
+.eq-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.eq-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px 40px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: clamp(6px, 1.2vw, var(--s3));
+  padding: clamp(6px, 1vw, var(--s2));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r3);
+  color: var(--v-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  flex-shrink: 0;
+}
+
+/* 完成态：掌灯青边框 + 微光 */
+.eq-item.done {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+}
+
+/* 失败态：错误色边框 */
+.eq-item.failed {
+  border-color: var(--v-error);
+}
+
+/* 处理中：脉冲光 */
+.eq-item.processing {
+  border-color: var(--v-accent);
+  animation: eq-processing-pulse 2s ease-in-out infinite;
+}
+
+@keyframes eq-processing-pulse {
+  0%, 100% { box-shadow: var(--glow-soft); }
+  50%      { box-shadow: var(--glow-active); }
+}
+
+/* 当前选中 */
+.eq-item.current {
+  border-color: var(--v-border-strong);
+}
+
+/* 悬浮：仅背景微调，不做位移 */
+.eq-item:hover {
+  background: var(--v-rail);
+}
+
+.eq-item.done:hover {
+  background: var(--v-rail);
+  box-shadow: var(--glow-active);
+}
+
+/* 复选框 */
+.eq-cb {
+  width: 16px; height: 16px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r1);
+  background: var(--v-bg);
+  color: var(--v-accent);
+  flex-shrink: 0;
+}
+
+.eq-cb.on { border-color: var(--v-accent); background: var(--v-accent-16); }
+
+/* 缩略图 */
+.eq-thumb {
+  width: 40px; height: 40px;
+  object-fit: cover;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r1);
+  flex-shrink: 0;
+}
+
+.eq-thumb-placeholder {
+  width: 40px; height: 40px;
+  display: grid;
+  place-items: center;
+  background: var(--v-bg);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r1);
+  font-size: 9px;
+  color: var(--v-text-faint);
+  flex-shrink: 0;
+}
+
+/* 文件信息 */
+.eq-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.eq-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-small);
+  color: var(--v-text);
+}
+
+.eq-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--v-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.eq-sep { color: var(--v-text-faint); }
+
+.eq-status-done { color: var(--v-accent); }
+.eq-status-failed { color: var(--v-error); }
+.eq-status-processing { color: var(--v-accent); animation: eq-pulse-text 1s ease-in-out infinite; }
+
+@keyframes eq-pulse-text {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.eq-meta-tag {
+  padding: 0 4px;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r1);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+}
+
+/* 删除按钮 */
+.eq-rm {
+  width: 24px; height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
+  color: var(--v-text-muted);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.eq-rm:hover { border-color: var(--v-error); color: var(--v-error); }
+
+.eq-rm svg { width: 12px; height: 12px; }
+
+/* ── 底部拖拽区 ── */
+.eq-drop {
+  flex-shrink: 0;
+  height: 72px;
+  margin-top: var(--s3);
+  padding: var(--s3);
+  display: grid;
+  place-items: center;
+  gap: var(--s1);
+  cursor: pointer;
+  border: 1px dashed var(--v-border);
+  border-radius: var(--r4);
+  background: transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.eq-drop.over {
+  border-color: var(--v-accent);
+  background: var(--v-panel);
+}
+
+.eq-drop-icon {
+  width: 22px; height: 22px;
+  color: var(--v-text-muted);
+}
+
+.eq-drop-text {
+  font-size: var(--fs-small);
+  color: var(--v-text-muted);
+}
+
+/* ── 窄屏 ── */
+@media (max-width: 767px) {
+  .eq-item {
+    grid-template-columns: 14px 32px minmax(0, 1fr) 20px;
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .eq-thumb,
+  .eq-thumb-placeholder { width: 32px; height: 32px; }
+
+  .eq-cb { width: 14px; height: 14px; }
+
+  .eq-name { font-size: 12px; }
+  .eq-meta { font-size: 8px; gap: 2px; }
+  .eq-rm { width: 20px; height: 20px; }
+  .eq-rm svg { width: 10px; height: 10px; }
+
+  .eq-act-btn { font-size: 11px; min-height: 32px; padding: 0 var(--s1); }
+  .eq-start-btn { font-size: 13px; }
+}
+</style>

@@ -1,10 +1,34 @@
 <template>
   <div class="search-filter">
-    <input class="search-input" type="text" placeholder="搜索文件名、文本内容..." :value="search" @input="$emit('update:search', $event.target.value)" />
+    <input
+      class="search-input"
+      type="text"
+      placeholder="搜索文件名、文本内容..."
+      :value="search"
+      @input="$emit('update:search', $event.target.value)"
+    />
     <div class="filter-chips">
-      <button v-for="f in sceneFilters" :key="f.key" class="filter-chip" :class="{ active: filters.scene_type === f.key }" @click="toggle('scene_type', f.key)">{{ f.label }}</button>
+      <button
+        v-for="f in sceneFilters"
+        :key="f.key"
+        class="filter-chip"
+        :class="{ active: filters.scene_type === f.key }"
+        type="button"
+        @click="toggle('scene_type', f.key)"
+      >
+        {{ f.label }}
+      </button>
       <span class="chip-sep"></span>
-      <button v-for="f in statusFilters" :key="f.key" class="filter-chip" :class="{ active: filters.status === f.key }" @click="toggle('status', f.key)">{{ f.label }}</button>
+      <button
+        v-for="f in statusFilters"
+        :key="f.key"
+        class="filter-chip"
+        :class="{ active: filters.status === f.key }"
+        type="button"
+        @click="toggle('status', f.key)"
+      >
+        {{ f.label }}
+      </button>
     </div>
   </div>
 </template>
@@ -21,11 +45,13 @@ const sceneFilters = [
   { key: 'printed_document', label: '印刷' },
   { key: 'handwritten_note', label: '手写' },
   { key: 'screenshot', label: '截屏' },
+  { key: 'table_form', label: '表格' },
 ]
 const statusFilters = [
   { key: '', label: '全部状态' },
   { key: 'complete', label: '完成' },
   { key: 'failed', label: '失败' },
+  { key: 'processing', label: '处理中' },
 ]
 
 function toggle(field, key) {
@@ -37,7 +63,7 @@ function toggle(field, key) {
 .search-filter { display: flex; align-items: center; gap: var(--s2); }
 
 .search-input {
-  width: 180px;
+  width: 220px;
   height: 32px;
   padding-inline: var(--s2);
   background: var(--v-bg);
@@ -67,6 +93,5 @@ function toggle(field, key) {
 }
 
 .filter-chip:hover { border-color: var(--v-border-strong); color: var(--v-text); }
-
 .filter-chip.active { border-color: var(--v-accent); color: var(--v-accent); box-shadow: var(--glow-soft); }
 </style>

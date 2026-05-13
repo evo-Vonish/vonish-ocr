@@ -2,12 +2,12 @@
   <div class="batch-bar">
     <div class="batch-left">
       <span class="batch-count">已选中 {{ count }} 项</span>
-      <button class="batch-link" @click="$emit('close')">取消选择</button>
+      <button class="batch-link" type="button" @click="$emit('close')">取消选择</button>
     </div>
     <div class="batch-right">
-      <button class="batch-btn" @click="$emit('delete')">批量删除</button>
-      <button class="batch-btn" @click="$emit('export')">批量导出</button>
-      <button class="batch-btn" @click="$emit('move')">移至案件组</button>
+      <button class="batch-btn danger" type="button" @click="$emit('delete')">批量删除</button>
+      <button class="batch-btn" type="button" @click="$emit('export')">批量导出</button>
+      <button class="batch-btn" type="button" @click="$emit('move')">移至案卷组</button>
     </div>
   </div>
 </template>
@@ -60,4 +60,5 @@ defineEmits(['close', 'delete', 'export', 'move'])
 }
 
 .batch-btn:hover { border-color: var(--v-accent); }
+.batch-btn.danger { color: var(--v-error); border-color: var(--v-error); }
 </style>

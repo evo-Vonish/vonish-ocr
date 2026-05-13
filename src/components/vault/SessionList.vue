@@ -1,35 +1,36 @@
 <template>
   <div class="session-list">
-    <div class="session-label">案件组</div>
-    <div
+    <div class="session-label">案卷组</div>
+    <button
       v-for="s in sessions"
       :key="s.id"
       class="session-item"
       :class="{ active: s.id === activeId }"
+      type="button"
       @click="$emit('select', s.id)"
     >
       <span class="session-name">{{ s.name }}</span>
       <span class="session-count">{{ s.count }}</span>
-    </div>
+    </button>
     <div class="new-session">
       <input
         v-if="creating"
         ref="newInput"
         v-model="newName"
         class="new-input"
-        placeholder="案件组名称"
+        placeholder="案卷组名称"
         @keyup.enter="confirmCreate"
         @blur="cancelCreate"
       />
-      <button v-else class="new-btn" type="button" @click="startCreate">+ 新建案件组</button>
+      <button v-else class="new-btn" type="button" @click="startCreate">+ 新建案卷组</button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { nextTick, ref } from 'vue'
 
-const props = defineProps({
+defineProps({
   sessions: { type: Array, default: () => [] },
   activeId: { type: String, default: '' },
 })
@@ -74,13 +75,17 @@ function cancelCreate() {
   justify-content: space-between;
   height: 40px;
   padding-inline: var(--s3);
+  border: 0;
   border-left: 2px solid transparent;
   border-radius: 0 var(--r2) var(--r2) 0;
+  background: transparent;
+  color: var(--v-text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
+  text-align: left;
 }
 
-.session-item:hover { background: var(--v-panel); }
+.session-item:hover { background: var(--v-panel); color: var(--v-text); }
 
 .session-item.active {
   background: var(--v-panel);
@@ -128,5 +133,6 @@ function cancelCreate() {
   border-radius: var(--r2);
   color: var(--v-text);
   font-size: var(--fs-caption);
+  box-sizing: border-box;
 }
 </style>

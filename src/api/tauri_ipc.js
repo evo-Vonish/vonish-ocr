@@ -262,6 +262,10 @@ export async function getAISchemes() {
   return _backendJson('/v1/ai/schemes')
 }
 
+export async function getAIScheme(schemeId, { includeKey = false } = {}) {
+  return _backendJson(`/v1/ai/schemes/${encodeURIComponent(schemeId)}?include_key=${includeKey ? 'true' : 'false'}`)
+}
+
 // 新增或更新 AI 方案；api_key 只在本次请求内传输，不写入 localStorage。
 export async function saveAIScheme(scheme) {
   return _backendJson('/v1/ai/schemes', {

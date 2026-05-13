@@ -89,6 +89,11 @@ def _connect():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    # 旧版 vault.db 可能已经存在但缺少新列；这里做轻量迁移，避免案卷库首次打开失败。
+    try:
+        conn.execute("ALTER TABLE sessions ADD COLUMN is_default INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     return conn
 
@@ -112,21 +117,25 @@ class VaultDB:
         return await asyncio.to_thread(_run)
 
     # --- Sessions ---
-    async def create_session(self, name, description=None, color_tag=None):
+    async def create_session(self, name, description=None, color_tag=None, is_default=False):
         sid = str(uuid.uuid4())
         now = time.time()
         await self._execute(
-            "INSERT INTO sessions(id,name,description,color_tag,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-            (sid, name, description, color_tag or "#8FF6D2", now, now),
+            "INSERT INTO sessions(id,name,description,color_tag,created_at,updated_at,is_default) VALUES(?,?,?,?,?,?,?)",
+            (sid, name, description, color_tag or "#8FF6D2", now, now, 1 if is_default else 0),
         )
-        return {"id": sid, "name": name}
+        return {"id": sid, "name": name, "is_default": bool(is_default)}
 
     async def list_sessions(self):
         rows = await self._execute(
             "SELECT id, name, color_tag, created_at, updated_at, "
-            "(SELECT COUNT(*) FROM evidences WHERE session_id=sessions.id) as cnt,"
+            "CASE "
+            "WHEN is_default=1 THEN (SELECT COUNT(*) FROM evidences) "
+            "WHEN name='未分组' THEN (SELECT COUNT(*) FROM evidences WHERE session_id IS NULL) "
+            "ELSE (SELECT COUNT(*) FROM evidences WHERE session_id=sessions.id) "
+            "END as cnt,"
             "is_default "
-            "FROM sessions ORDER BY is_default ASC, updated_at DESC",
+            "FROM sessions ORDER BY is_default DESC, updated_at DESC",
             fetch=True,
         )
         return [
@@ -185,10 +194,10 @@ class VaultDB:
             params.append(date_to)
 
         if search:
-            where.append(
-                "rowid IN (SELECT rowid FROM evidences_fts WHERE evidences_fts MATCH ?)"
-            )
-            params.append(f'"{search}"')
+            # FTS 表在历史版本中没有稳定写入 rowid，LIKE 搜索更稳，避免案卷库搜不到已有证据。
+            like = f"%{search}%"
+            where.append("(filename LIKE ? OR raw_text LIKE ? OR refined_text LIKE ?)")
+            params.extend([like, like, like])
 
         count_sql = f"SELECT COUNT(*) FROM evidences WHERE {' AND '.join(where)}"
         data_sql = f"SELECT id,session_id,filename,file_size,mime_type,scene_type,model_tier,ocr_confidence,process_time_ms,raw_text,refined_text,diff_json,thumbnail_path,original_copy_path,status,error_message,created_at,updated_at FROM evidences WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -232,6 +241,8 @@ class VaultDB:
         await self._execute("DELETE FROM evidences WHERE id=?", (evidence_id,))
 
     async def move_to_session(self, evidence_ids, session_id):
+        if not evidence_ids:
+            return
         now = time.time()
         placeholders = ",".join("?" * len(evidence_ids))
         await self._execute(

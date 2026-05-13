@@ -52,7 +52,7 @@ The API will be available at `http://127.0.0.1:8000`.
 - [ ] `POST http://127.0.0.1:8000/v1/ocr` returns a recognition result
 - [ ] Drag a test image onto the desk — result appears within 3 seconds
 
-If anything fails, see [Troubleshooting](../operations/troubleshooting).
+If anything fails, see [Troubleshooting](../operations/02-troubleshooting).
 
 ---
 

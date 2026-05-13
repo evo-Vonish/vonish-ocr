@@ -195,6 +195,47 @@ async def preprocess_image(request: Request, job_id: str, kind: str):
     return FileResponse(path)
 
 
+async def _save_ocr_to_vault(
+    request: Request,
+    result: dict,
+    payload: dict,
+    original_bytes: bytes | None,
+    preprocessed_bytes: bytes | None,
+    model_id: str,
+    scene_type: str,
+) -> dict:
+    """Save OCR output into Case Vault; failures must not block OCR response."""
+    if payload.get("archive") is False or not original_bytes:
+        return result
+    try:
+        from services.vault_service import VaultService
+
+        svc = getattr(request.app.state, "vault_service", None)
+        if svc is None:
+            svc = VaultService()
+            request.app.state.vault_service = svc
+
+        filename = payload.get("file") or payload.get("file_name") or "image.png"
+        suffix = Path(filename).suffix.lower().lstrip(".") or "png"
+        archive_result = {
+            **result,
+            "filename": filename,
+            "file_size": len(original_bytes),
+            "mime_type": payload.get("mime_type") or f"image/{suffix}",
+            "scene": scene_type,
+            "model_tier": model_id,
+            "confidence": result.get("confidence"),
+            "process_time_ms": result.get("process_time_ms") or result.get("elapsed_ms") or result.get("time_ms"),
+            "text": result.get("raw_text") or result.get("text", ""),
+            "ext": suffix,
+        }
+        vault_id = await svc.save_ocr_result(archive_result, original_bytes, preprocessed_bytes)
+        return {**result, "vault_id": vault_id}
+    except Exception as e:
+        logger.warning("Case Vault archive failed; OCR response continues: %s", e)
+        return result
+
+
 @router.post("/v1/ocr")
 async def ocr_single(request: Request, payload: dict = Body(...)):
     """单图 OCR 识别。
@@ -236,16 +277,22 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
         "strategy": "skip" if skip_preprocess else preprocess_strategy,
     }
 
+    vault_original_bytes = None
+    vault_preprocessed_bytes = None
+
     if preprocess_job_id:
         store = _get_preprocess_store(request)
         job = store.get(preprocess_job_id)
         if not job:
             raise HTTPException(status_code=404, detail={"code": "PREPROCESS_NOT_FOUND", "message": "预处理任务不存在"})
+        vault_original_bytes = Path(job.original_path).read_bytes()
         processed_bytes = Path(job.processed_path).read_bytes()
+        vault_preprocessed_bytes = processed_bytes
         scene_type = job.scene
         preprocess_meta = _job_to_preprocess_meta(job)
     else:
         image_bytes = _decode_image_bytes(image_b64)
+        vault_original_bytes = image_bytes
         max_image_size = 50 * 1024 * 1024
         if len(image_bytes) > max_image_size:
             raise HTTPException(status_code=413, detail={"code": "FILE_TOO_LARGE", "message": f"图片大小超过 50MB 限制 ({len(image_bytes) // (1024*1024)}MB)"})
@@ -274,6 +321,7 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
             preprocess_meta["used_original"] = True
             preprocess_meta["fallback"] = True
             processed_bytes = image_bytes
+            vault_preprocessed_bytes = None
         else:
             prep = await _run_preprocess_job(
                 request=request,
@@ -285,6 +333,7 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
             )
             job = _get_preprocess_store(request).get(prep["job_id"])
             processed_bytes = Path(job.processed_path).read_bytes()
+            vault_preprocessed_bytes = processed_bytes
             scene_type = job.scene
             preprocess_meta = _job_to_preprocess_meta(job)
 
@@ -343,13 +392,15 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
         if output_mode == "smart":
             output_mode = "dual" if refiner.should_refine(result.get("confidence", 0.0)) else "raw"
         if output_mode == "raw":
-            return result
+            return await _save_ocr_to_vault(request, result, payload, vault_original_bytes, vault_preprocessed_bytes, model_id, scene_type)
         if output_mode == "polished":
-            return {**result, "text": ai_result["polished"], "ai": ai_result}
-        return {**result, "ai": ai_result}
+            final_result = {**result, "raw_text": result.get("text", ""), "text": ai_result["polished"], "ai": ai_result}
+            return await _save_ocr_to_vault(request, final_result, payload, vault_original_bytes, vault_preprocessed_bytes, model_id, scene_type)
+        final_result = {**result, "ai": ai_result}
+        return await _save_ocr_to_vault(request, final_result, payload, vault_original_bytes, vault_preprocessed_bytes, model_id, scene_type)
     except Exception as e:
         logger.warning("AI Refiner 后处理失败: %s", e)
-        return {
+        final_result = {
             **result,
             "ai": {
                 "polished": result.get("text", ""),
@@ -359,6 +410,7 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
                 "error": {"code": "AI_REFINER_FAILED", "message": f"AI 修复失败: {e}"},
             },
         }
+        return await _save_ocr_to_vault(request, final_result, payload, vault_original_bytes, vault_preprocessed_bytes, model_id, scene_type)
 
     if not image_b64:
         raise HTTPException(status_code=400, detail={"code": "MISSING_IMAGE", "message": "缺少 image 字段"})
@@ -1099,6 +1151,19 @@ async def list_ai_schemes(request: Request):
     }
 
 
+@router.get("/v1/ai/schemes/{scheme_id}")
+async def get_ai_scheme(request: Request, scheme_id: str, include_key: bool = False):
+    """读取单个 AI 方案。
+
+    默认仍然只返回脱敏元数据；编辑页明确传 include_key=true 时，
+    后端从 DPAPI 加密仓库取回明文 Key，便于用户继续编辑。
+    """
+    try:
+        return {"scheme": request.app.state.config_manager.get_ai_scheme(scheme_id, include_key=include_key)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={"code": "AI_SCHEME_NOT_FOUND", "message": str(e)})
+
+
 @router.post("/v1/ai/schemes")
 async def upsert_ai_scheme(request: Request, payload: dict = Body(...)):
     """新增或更新 AI 修复方案，API Key 写入系统加密存储。"""
@@ -1109,6 +1174,16 @@ async def upsert_ai_scheme(request: Request, payload: dict = Body(...)):
     data = scheme.model_dump()
     data.pop("api_key", None)
     return {"scheme": data}
+
+
+@router.delete("/v1/ai/schemes/{scheme_id}")
+async def delete_ai_scheme(request: Request, scheme_id: str):
+    """删除 AI 方案，同时删除 DPAPI 加密 Key。"""
+    try:
+        request.app.state.config_manager.delete_ai_scheme(scheme_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={"code": "AI_SCHEME_NOT_FOUND", "message": str(e)})
+    return {"ok": True, "scheme_id": scheme_id}
 
 
 @router.post("/v1/ai/schemes/active")

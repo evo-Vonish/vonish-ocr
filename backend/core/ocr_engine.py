@@ -95,6 +95,31 @@ class OCREngineManager:
             self.active = model_id
             return engine
 
+    async def load_from_path(
+        self,
+        engine_id: str,
+        model_path: Path,
+        engine_factory: Callable[[Path], BaseOCREngine],
+    ) -> BaseOCREngine:
+        """Load an OCR engine from an explicit model directory.
+
+        中文说明：
+        语言包不再伪装成普通模型目录。它们安装在 models/langpacks 下，
+        这里用独立 engine_id 缓存对应语言的 RapidOCR 实例，保证切换语言时
+        真正换 det/rec/cls ONNX 文件，而不是继续复用默认中文模型。
+        """
+        async with self._lock:
+            if engine_id in self.engines:
+                self.active = engine_id
+                return self.engines[engine_id]
+            if not model_path.exists() or not model_path.is_dir():
+                raise ValueError(f"Language pack model directory missing: {model_path}")
+            engine = engine_factory(model_path)
+            await engine.load()
+            self.engines[engine_id] = engine
+            self.active = engine_id
+            return engine
+
     async def unload(self, model_id: str) -> None:
         async with self._lock:
             engine = self.engines.pop(model_id, None)

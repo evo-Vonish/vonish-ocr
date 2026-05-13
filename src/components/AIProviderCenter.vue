@@ -82,7 +82,7 @@
         </label>
         <label>
           <span>API Key</span>
-          <input v-model.trim="draft.api_key" type="password" :placeholder="keyPlaceholder" />
+          <input v-model.trim="draft.api_key" type="password" :placeholder="keyPlaceholder" :disabled="editingKeyLoading" />
         </label>
         <label>
           <span>Base URL</span>
@@ -124,6 +124,7 @@ defineProps({
 const configStore = useConfigStore()
 const mode = ref('list')
 const isNew = ref(true)
+const editingKeyLoading = ref(false)
 const draft = reactive(createDraft())
 
 const schemes = computed(() => configStore.aiSchemes)
@@ -204,7 +205,12 @@ const editTitle = computed(() => copy.value.editTitle)
 const nameLabel = computed(() => copy.value.name)
 const namePlaceholder = computed(() => copy.value.namePlaceholder)
 const providerLabel = computed(() => copy.value.provider)
-const keyPlaceholder = computed(() => copy.value.keyPlaceholder)
+const keyPlaceholder = computed(() => {
+  if (editingKeyLoading.value) return isZh.value ? '正在读取已保存 Key...' : 'Loading saved key...'
+  if (!isNew.value && draft.api_key) return isZh.value ? '已加载已保存 Key，可直接修改' : 'Saved key loaded; edit if needed'
+  if (!isNew.value) return isZh.value ? '留空保存会继续沿用旧 Key' : 'Leave empty to keep the saved key'
+  return copy.value.keyPlaceholder
+})
 const basePlaceholder = computed(() => copy.value.basePlaceholder)
 const modelLabel = computed(() => copy.value.model)
 const weightLabel = computed(() => copy.value.weight)
@@ -235,7 +241,7 @@ function startCreate() {
   mode.value = 'editor'
 }
 
-function startEdit(scheme) {
+async function startEdit(scheme) {
   // 先清空全部字段再赋值，防止旧字段残留
   const fresh = createDraft()
   Object.assign(draft, fresh, {
@@ -250,6 +256,24 @@ function startEdit(scheme) {
   })
   isNew.value = false
   mode.value = 'editor'
+  editingKeyLoading.value = true
+  try {
+    const detail = await configStore.loadAIScheme(scheme.id, { includeKey: true })
+    Object.assign(draft, {
+      id: detail.id,
+      name: detail.name || '',
+      provider_type: providerName(detail.provider_type),
+      api_key: detail.api_key || '',
+      api_base: detail.api_base || '',
+      model: detail.model || '',
+      weight: detail.weight || 5,
+      enabled: detail.enabled !== false,
+    })
+  } catch (e) {
+    showToast({ type: 'error', message: isZh.value ? '读取已保存 Key 失败，保存时将保留旧 Key' : 'Failed to load saved key. Saving will keep the old key.', duration: 4000 })
+  } finally {
+    editingKeyLoading.value = false
+  }
 }
 
 function normalizeProvider(value) {

@@ -331,6 +331,7 @@ class LangPackManager:
         return manifest
 
     def list(self, include_remote: bool = True) -> list[dict]:
+        self._register_available_local_packs()
         installed = {
             (row["language_code"], row["model_family"], row["quality_tier"]): row
             for row in self.db.list()
@@ -343,6 +344,54 @@ class LangPackManager:
             if include_remote or inst:
                 rows.append(self._row_from_manifest(manifest, inst))
         return rows
+
+    def _register_available_local_packs(self) -> None:
+        """Register bundled/local packs when model files already exist.
+
+        中文说明：
+        安装包默认带有中英文模型文件，但 SQLite 安装索引可能还没初始化。
+        GUI 打开语言包库时先自动登记这些本地可用包，避免默认中英显示为未安装。
+        """
+        for entry in self.index().get("languages", []):
+            if entry.get("generated"):
+                continue
+            manifest = self.manifest(LangSpec(entry["model_family"], entry["code"]))
+            install_dir = self._install_dir(manifest)
+            already = self.db.get(
+                manifest["language"]["code"],
+                manifest["model_family"],
+                manifest.get("quality_tier", "standard"),
+            )
+            if already:
+                continue
+            if not self._has_all_required(manifest, install_dir):
+                continue
+            file_paths = [install_dir / f["filename"] for f in manifest.get("files", []) if (install_dir / f["filename"]).exists()]
+            source = "bundled"
+            verified = self._verify_files(manifest, install_dir, repair=False)["ok"]
+            self.db.upsert(manifest, install_dir, file_paths, source, verified)
+
+    def installed_model_dir(self, spec: LangSpec) -> Path:
+        """Return the installed ONNX directory for a language pack.
+
+        中文说明：
+        这是 OCR 运行时真正接入语言包的入口。只看 SQLite 安装索引和
+        models/langpacks 下的文件，不再因为 rapidocr-mobile-cn 目录存在就
+        自动把语言包当成已安装。
+        """
+        manifest = self.manifest(spec)
+        row = self.db.get(
+            manifest["language"]["code"],
+            manifest["model_family"],
+            manifest.get("quality_tier", "standard"),
+        )
+        if not row:
+            raise LangPackError(f"language pack is not installed: {spec.model_family}:{spec.language}")
+        install_dir = Path(row["install_dir"])
+        check = self._verify_files(manifest, install_dir, repair=False)
+        if not check.get("ok"):
+            raise LangPackError(f"language pack files are incomplete: {spec.model_family}:{spec.language}")
+        return install_dir
 
     def show(self, spec: LangSpec) -> dict:
         manifest = self.manifest(spec)

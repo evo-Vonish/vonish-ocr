@@ -1,12 +1,16 @@
-"""Vault service — coordinates DB, thumbnail, and file operations"""
-import asyncio
+"""Vault service coordinates DB, thumbnails, local copies and exports."""
 import json
 import logging
 import uuid
-from pathlib import Path
 
 from db.vault_db import VaultDB
-from services.thumbnail import generate_thumbnail, copy_original, copy_preprocessed, delete_vault_files, resolve_vault_url
+from services.thumbnail import (
+    copy_original,
+    copy_preprocessed,
+    delete_vault_files,
+    generate_thumbnail,
+    resolve_vault_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +24,19 @@ class VaultService:
         return await self.db.create_session(name, description, color_tag)
 
     async def list_sessions(self):
+        """Return archive sessions and create required system sessions when missing."""
         sessions = await self.db.list_sessions()
-        has_all = any(s["is_default"] for s in sessions)
-        has_unfiled = any(s["name"] == "未分组" for s in sessions)
+        has_all = any(s.get("is_default") for s in sessions)
+        has_unfiled = any(s.get("name") == "未分组" for s in sessions)
         if not has_all:
-            await self.db.create_session("全部证据", "系统默认", is_default=True)
+            await self.db.create_session("全部证据", "系统默认入口", is_default=True)
         if not has_unfiled:
             await self.db.create_session("未分组", "尚未归档的证据")
         return await self.db.list_sessions()
 
     # --- Save evidence after OCR complete ---
-    async def save_ocr_result(self, result: dict, original_bytes: bytes,
-                                preprocessed_bytes: bytes = None):
-        """Called after OCR completes. Saves evidence to vault."""
+    async def save_ocr_result(self, result: dict, original_bytes: bytes, preprocessed_bytes: bytes = None):
+        """Save OCR output into the local vault."""
         eid = str(uuid.uuid4())
         ext = result.get("ext", "png")
 
@@ -43,7 +47,6 @@ class VaultService:
             prep_path = await copy_preprocessed(preprocessed_bytes, eid)
 
         diff_json = json.dumps(result.get("ai", {}).get("diff", []), ensure_ascii=False) if result.get("ai") else None
-
         data = {
             "id": eid,
             "session_id": result.get("session_id"),
@@ -69,13 +72,22 @@ class VaultService:
 
     # --- Queries ---
     async def list_evidences(self, **kwargs):
-        return await self.db.list_evidences(**kwargs)
+        result = await self.db.list_evidences(**kwargs)
+        for item in result.get("items", []):
+            self._attach_urls(item)
+        return result
 
     async def get_evidence(self, evidence_id: str):
         evidence = await self.db.get_evidence(evidence_id)
         if evidence:
-            evidence["thumbnail_url"] = resolve_vault_url(evidence.get("thumbnail_path"))
-            evidence["original_url"] = resolve_vault_url(evidence.get("original_copy_path"))
+            self._attach_urls(evidence)
+        return evidence
+
+    def _attach_urls(self, evidence: dict):
+        """Attach backend-relative file URLs to an evidence payload."""
+        evidence["thumbnail_url"] = resolve_vault_url(evidence.get("thumbnail_path"))
+        evidence["original_url"] = resolve_vault_url(evidence.get("original_copy_path"))
+        evidence["preprocessed_url"] = resolve_vault_url(evidence.get("preprocessed_path"))
         return evidence
 
     async def delete_evidence(self, evidence_id: str):
@@ -95,9 +107,17 @@ class VaultService:
         await self.db.update_status(evidence_id, status, error_message)
 
     async def batch_export(self, evidence_ids: list[str], fmt: str):
+        """Return export-ready records; frontend decides download packaging."""
         results = []
         for eid in evidence_ids:
             ev = await self.db.get_evidence(eid)
             if ev:
-                results.append({"id": eid, "filename": ev["filename"], "format": fmt})
+                results.append({
+                    "id": eid,
+                    "filename": ev["filename"],
+                    "format": fmt,
+                    "raw_text": ev.get("raw_text") or "",
+                    "refined_text": ev.get("refined_text") or "",
+                    "diff_json": ev.get("diff_json") or "",
+                })
         return results
