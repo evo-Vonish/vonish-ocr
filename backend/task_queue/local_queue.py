@@ -31,8 +31,11 @@ class LocalQueue:
             "total": len(images),
             "completed": 0,
             "failed": 0,
-            "results": [],
+            "results": [None] * len(images),
             "submitted_at": time.time(),
+            "started_at": None,
+            "completed_at": None,
+            "last_progress_at": None,
         }
         self._cancel_events[task_id] = asyncio.Event()
         self.queue.put_nowait((task_id, images, options))
@@ -42,18 +45,29 @@ class LocalQueue:
         """注册进度回调：callback(task_id, completed, total, result_or_none, index_or_none)"""
         self._progress_callbacks[task_id] = callback
 
-    def get_status(self, task_id: str) -> dict:
+    def get_status(self, task_id: str, include_results: bool = False) -> dict:
         t = self.tasks.get(task_id)
         if not t:
             return {"error": "Task not found"}
-        return {
+        payload = {
             "task_id": task_id,
             "status": t["status"],
             "total": t["total"],
             "completed": t["completed"],
             "failed": t["failed"],
             "progress": t["completed"] / t["total"] if t["total"] > 0 else 0,
+            "submitted_at": t.get("submitted_at"),
+            "started_at": t.get("started_at"),
+            "completed_at": t.get("completed_at"),
+            "last_progress_at": t.get("last_progress_at"),
         }
+        if include_results:
+            payload["results"] = [
+                {"index": idx, "result": result}
+                for idx, result in enumerate(t.get("results") or [])
+                if result is not None
+            ]
+        return payload
 
     def get_result(self, task_id: str) -> Optional[List[dict]]:
         t = self.tasks.get(task_id)
@@ -102,6 +116,8 @@ class LocalQueue:
                 continue
 
             task["status"] = "processing"
+            task["started_at"] = time.time()
+            task["last_progress_at"] = task["started_at"]
             # 推送开始事件 (progress=0)
             cb_start = self._progress_callbacks.get(task_id)
             if cb_start:
@@ -118,18 +134,21 @@ class LocalQueue:
                 except Exception:
                     effective_concurrency = self.concurrency
             semaphore = asyncio.Semaphore(max(1, effective_concurrency))
-            results: List[dict] = [None] * len(images)
+            results: List[dict] = task.get("results") or [None] * len(images)
+            task["results"] = results
 
             async def process_one(idx: int, img: bytes):
                 if cancel_event and cancel_event.is_set():
                     results[idx] = {"error": "cancelled"}
                     task["completed"] += 1
+                    task["last_progress_at"] = time.time()
                     return
 
                 async with semaphore:
                     if cancel_event and cancel_event.is_set():
                         results[idx] = {"error": "cancelled"}
                         task["completed"] += 1
+                        task["last_progress_at"] = time.time()
                         return
 
                     try:
@@ -147,6 +166,7 @@ class LocalQueue:
                         import gc
                         gc.collect()
                     task["completed"] += 1
+                    task["last_progress_at"] = time.time()
 
                     # 触发进度回调
                     cb = self._progress_callbacks.get(task_id)
@@ -162,6 +182,8 @@ class LocalQueue:
             task["results"] = results
             if task["status"] != "cancelled":
                 task["status"] = "completed"
+            task["completed_at"] = time.time()
+            task["last_progress_at"] = task["completed_at"]
             # 推送完成事件 (progress=100%)
             cb_end = self._progress_callbacks.get(task_id)
             if cb_end:

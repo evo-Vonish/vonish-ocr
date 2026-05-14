@@ -27,8 +27,9 @@ class ONNXOCREngine(BaseOCREngine):
         self._det_path: Optional[Path] = None
         self._rec_path: Optional[Path] = None
         self._cls_path: Optional[Path] = None
+        self._dict_path: Optional[Path] = None
 
-    def _scan_models(self) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
+    def _scan_models(self) -> tuple[Optional[Path], Optional[Path], Optional[Path], Optional[Path]]:
         """扫描模型目录，按文件名关键词匹配 det/rec/cls。"""
         if not self.model_path.exists() or not self.model_path.is_dir():
             raise FileNotFoundError(f"模型目录不存在: {self.model_path}")
@@ -37,7 +38,7 @@ class ONNXOCREngine(BaseOCREngine):
         if not onnx_files:
             raise FileNotFoundError(f"模型目录中未找到 .onnx 文件: {self.model_path}")
 
-        det_path = rec_path = cls_path = None
+        det_path = rec_path = cls_path = dict_path = None
         for f in onnx_files:
             name_lower = f.name.lower()
             if "det" in name_lower:
@@ -46,6 +47,12 @@ class ONNXOCREngine(BaseOCREngine):
                 rec_path = f
             elif "cls" in name_lower:
                 cls_path = f
+
+        for f in self.model_path.glob("*.txt"):
+            name_lower = f.name.lower()
+            if "dict" in name_lower or "keys" in name_lower:
+                dict_path = f
+                break
 
         if not det_path:
             raise FileNotFoundError(f"未找到检测模型 (det): {self.model_path}")
@@ -60,16 +67,19 @@ class ONNXOCREngine(BaseOCREngine):
             rec_path.name,
             cls_path.name if cls_path else "N/A",
         )
-        return det_path, rec_path, cls_path
+        return det_path, rec_path, cls_path, dict_path
 
     async def load(self) -> None:
         if self.loaded:
             return
 
-        self._det_path, self._rec_path, self._cls_path = self._scan_models()
+        self._det_path, self._rec_path, self._cls_path, self._dict_path = self._scan_models()
 
         try:
             from rapidocr_onnxruntime import RapidOCR
+            from rapidocr_onnxruntime.main import DEFAULT_CFG_PATH
+            from rapidocr_onnxruntime.utils import read_yaml
+            import yaml
         except ImportError as e:
             raise RuntimeError(
                 "rapidocr-onnxruntime 未安装，请运行: pip install rapidocr-onnxruntime"
@@ -81,6 +91,30 @@ class ONNXOCREngine(BaseOCREngine):
         }
         if self._cls_path:
             kwargs["cls_model_path"] = str(self._cls_path)
+        config_path = None
+        if self._dict_path:
+            # rapidocr-onnxruntime 的 kwargs 解析器无法可靠注入 Rec.rec_keys_path，
+            # 因此语言包带 dict.txt 时生成一份本地配置文件，让识别字典真实生效。
+            config = read_yaml(DEFAULT_CFG_PATH)
+            config["Global"]["use_cls"] = bool(self._cls_path)
+            config["Global"]["intra_op_num_threads"] = 2
+            config["Global"]["inter_op_num_threads"] = 2
+            config["Det"]["model_path"] = str(self._det_path)
+            config["Det"]["use_dml"] = True
+            config["Det"]["intra_op_num_threads"] = 2
+            config["Det"]["inter_op_num_threads"] = 2
+            config["Rec"]["model_path"] = str(self._rec_path)
+            config["Rec"]["rec_keys_path"] = str(self._dict_path)
+            config["Rec"]["use_dml"] = True
+            config["Rec"]["intra_op_num_threads"] = 2
+            config["Rec"]["inter_op_num_threads"] = 2
+            if self._cls_path:
+                config["Cls"]["model_path"] = str(self._cls_path)
+                config["Cls"]["use_dml"] = True
+                config["Cls"]["intra_op_num_threads"] = 2
+                config["Cls"]["inter_op_num_threads"] = 2
+            config_path = self.model_path / "vonish_rapidocr_config.yaml"
+            config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
         # 启用 DirectML GPU 加速（Windows 专用，绕过 Blackwell CUDA 限制）
         kwargs["use_dml"] = True
@@ -89,7 +123,7 @@ class ONNXOCREngine(BaseOCREngine):
         kwargs["intra_op_num_threads"] = 2
         kwargs["inter_op_num_threads"] = 2
 
-        self._ocr = RapidOCR(**kwargs)
+        self._ocr = RapidOCR(config_path=str(config_path), **kwargs) if config_path else RapidOCR(**kwargs)
         self.loaded = True
         gc.collect()
         logger.info("ONNX OCR 引擎加载完成: %s", self.model_id)

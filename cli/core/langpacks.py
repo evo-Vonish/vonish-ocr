@@ -281,7 +281,11 @@ class LangPackManager:
         path = self._manifest_path(spec)
         manifest = _read_json(path)
         entry = self._index_entry(spec)
-        if entry.get("generated") or manifest.get("language", {}).get("code") != entry.get("code"):
+        if (
+            entry.get("generated")
+            or manifest.get("language", {}).get("code") != entry.get("code")
+            or (spec.model_family == "pp-ocrv5" and entry.get("code") not in {"ch", "zh", "zh-cn"})
+        ):
             manifest = self._manifest_for_entry(manifest, entry)
         if spec.version and manifest.get("pack_version") != spec.version:
             raise LangPackError(
@@ -314,21 +318,70 @@ class LangPackManager:
         }
         manifest["generated"] = bool(entry.get("generated"))
         manifest["pack_version"] = entry.get("version") or manifest.get("pack_version", "1.0.0")
-        for file_info in manifest.get("files", []):
-            old = file_info.get("filename", "")
-            role = file_info.get("role", "model")
-            suffix = "det_mobile.onnx" if role == "detection" else "rec_mobile.onnx"
-            if role == "classification":
-                suffix = "cls_mobile.onnx"
-            file_info["filename"] = f"{code}_PP-OCRv5_{suffix}"
-            file_info["sha256"] = None
-            file_info["download_urls"] = [
-                f"https://huggingface.co/vonishocr/pp-ocrv5-{code}/resolve/main/{file_info['filename']}",
-                f"https://hf-mirror.com/vonishocr/pp-ocrv5-{code}/resolve/main/{file_info['filename']}",
-                f"https://modelscope.cn/models/vonishocr/pp-ocrv5-{code}/resolve/main/{file_info['filename']}",
-            ]
-            file_info["source_template"] = old
+        group = self._monkt_group_for_entry(entry)
+        if group:
+            manifest["files"] = self._monkt_manifest_files(group)
+            manifest["metadata"]["source"] = "monkt/paddleocr-onnx"
+        else:
+            # Keep unsupported catalog entries visible, but do not expose fake
+            # mirrors. Install will fail with a clear "no download URL" message.
+            manifest["files"] = []
+            manifest["metadata"]["source"] = "not_available"
         return manifest
+
+    def _monkt_group_for_entry(self, entry: dict) -> str | None:
+        code = str(entry.get("code") or "").lower()
+        script = str(entry.get("script") or "").lower()
+        if code == "en":
+            return "english"
+        if code in {"ko"} or script == "hangul":
+            return "korean"
+        if code in {"el"} or script == "greek":
+            return "greek"
+        if code in {"hi", "mr", "ne"} or script == "devanagari":
+            return "hindi"
+        if code in {"ta"} or script == "tamil":
+            return "tamil"
+        if code in {"te"} or script == "telugu":
+            return "telugu"
+        if code in {"th"} or script == "thai":
+            return "thai"
+        if script in {"arabic", "hebrew"} or code in {"ar", "fa", "ur", "ps", "sd", "ug", "he", "yi"}:
+            return "arabic"
+        if script == "cyrillic" or code in {"ru", "uk", "bg", "be", "mk", "mn", "sr", "kk", "ky", "tt", "tg"}:
+            return "eslav"
+        if script == "latin":
+            return "latin"
+        return None
+
+    def _monkt_manifest_files(self, group: str) -> list[dict]:
+        base = "https://huggingface.co/monkt/paddleocr-onnx/resolve/main"
+        return [
+            {
+                "role": "detection",
+                "filename": "det.onnx",
+                "size_bytes": 0,
+                "sha256": None,
+                "download_urls": [f"{base}/detection/v5/det.onnx"],
+                "required": True,
+            },
+            {
+                "role": "recognition",
+                "filename": "rec.onnx",
+                "size_bytes": 0,
+                "sha256": None,
+                "download_urls": [f"{base}/languages/{group}/rec.onnx"],
+                "required": True,
+            },
+            {
+                "role": "dictionary",
+                "filename": "dict.txt",
+                "size_bytes": 0,
+                "sha256": None,
+                "download_urls": [f"{base}/languages/{group}/dict.txt"],
+                "required": True,
+            },
+        ]
 
     def list(self, include_remote: bool = True) -> list[dict]:
         self._register_available_local_packs()
@@ -408,7 +461,7 @@ class LangPackManager:
         install_dir.mkdir(parents=True, exist_ok=True)
 
         local_hint = self._local_hint_dir(manifest)
-        if local_hint and self._has_all_required(manifest, local_hint):
+        if self._can_use_local_hint(manifest) and local_hint and self._has_all_required(manifest, local_hint):
             file_paths = self._copy_or_reference_local(manifest, local_hint, install_dir)
             verified = self._verify_files(manifest, install_dir, repair=False)["ok"]
             self.db.upsert(manifest, install_dir, file_paths, f"local:{local_hint}", verified)
@@ -482,8 +535,20 @@ class LangPackManager:
         return path if path.exists() else None
 
     def _local_hint_available(self, manifest: dict) -> bool:
+        if not self._can_use_local_hint(manifest):
+            return False
         local_hint = self._local_hint_dir(manifest)
         return bool(local_hint and self._has_all_required(manifest, local_hint))
+
+    def _can_use_local_hint(self, manifest: dict) -> bool:
+        """Return whether this pack may reuse an already bundled local model.
+
+        中文说明：
+        只有中文包可以复用 rapidocr-mobile-cn 这类本地中文模型。其他语言必须
+        通过自己的远程 ONNX 文件安装，避免把中文识别模型伪装成英文或小语种。
+        """
+        code = (manifest.get("language") or {}).get("code")
+        return code in {"ch", "zh", "zh_cn", "zh-CN"}
 
     def _has_all_required(self, manifest: dict, base: Path) -> bool:
         for file_info in manifest.get("files", []):

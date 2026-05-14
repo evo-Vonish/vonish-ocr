@@ -252,7 +252,7 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
     preprocess_job_id = payload.get("preprocess_job_id") or options.pop("preprocess_job_id", None)
     skip_preprocess = bool(payload.get("skip_preprocess") or options.pop("skip_preprocess", False))
     preprocess_strategy = payload.get("preprocess_strategy") or options.pop("preprocess_strategy", None) or "standard"
-    model_id = payload.get("model", "rapidocr-mobile-cn")
+    model_id = payload.get("model") or options.get("model") or "rapidocr-mobile-cn"
     engine_mgr = request.app.state.engine_manager
     # 新版预处理链路在模型选择后直接返回；旧逻辑保留在下方，避免大范围改动影响回滚。
     if model_id == "auto" or model_id not in engine_mgr._factories:
@@ -263,6 +263,11 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail={"code": "MISSING_IMAGE", "message": "缺少 image 字段"})
 
     cfg = request.app.state.config_manager.load()
+    from core.langpack_runtime import lang_engine_id, resolve_langpack_model_dir, selected_ocr_language
+    ocr_language = selected_ocr_language(cfg, options, payload)
+    runtime_model_id = model_id
+    if ocr_language:
+        runtime_model_id = lang_engine_id(model_id, ocr_language)
     scene_type = "printed_document"
     preprocess_meta = {
         "scene": scene_type,
@@ -337,16 +342,27 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
             scene_type = job.scene
             preprocess_meta = _job_to_preprocess_meta(job)
 
-    if model_id not in engine_mgr.engines:
+    if runtime_model_id not in engine_mgr.engines:
         for loaded_id in list(engine_mgr.engines.keys()):
-            if loaded_id != model_id:
+            if loaded_id != runtime_model_id:
                 try:
                     await engine_mgr.unload(loaded_id)
                     logger.info("切换模型时卸载旧模型: %s", loaded_id)
                 except Exception:
                     pass
         try:
-            await engine_mgr.load(model_id)
+            if ocr_language:
+                from core.engines import ONNXOCREngine
+
+                await engine_mgr.load_from_path(
+                    runtime_model_id,
+                    resolve_langpack_model_dir(ocr_language),
+                    lambda path, mid=runtime_model_id: ONNXOCREngine(path, model_id=mid),
+                )
+            else:
+                await engine_mgr.load(model_id)
+        except HTTPException:
+            raise
         except ValueError as e:
             logger.warning("模型未找到: %s", e)
             raise HTTPException(status_code=400, detail={"code": "MODEL_NOT_LOADED", "message": str(e)})
@@ -355,7 +371,7 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
             raise HTTPException(status_code=500, detail={"code": "MODEL_LOAD_ERROR", "message": f"模型加载失败: {e}"})
 
     try:
-        result = await engine_mgr.recognize(processed_bytes, model_id=model_id, options=options)
+        result = await engine_mgr.recognize(processed_bytes, model_id=runtime_model_id, options=options)
     except HTTPException:
         raise
     except Exception as e:
@@ -363,6 +379,8 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail={"code": "OCR_ENGINE_ERROR", "message": f"OCR 引擎错误: {e}"})
 
     result["scene"] = preprocess_meta["scene"]
+    if ocr_language:
+        result["ocr_language"] = ocr_language
     result["preprocess_steps"] = preprocess_meta["steps"]
     result["preprocess_time_ms"] = preprocess_meta["time_ms"]
     result["preprocess"] = preprocess_meta
@@ -382,6 +400,7 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
             temperature=ai_cfg.temperature,
             trigger_mode=ai_cfg.trigger_mode,
             schemes=request.app.state.config_manager.get_active_ai_scheme_with_failover(),
+            include_diff=bool(options.get("include_diff", cfg.include_diff)),
         )
         ai_result = await refiner.refine(
             raw_text=result.get("text", ""),
@@ -524,6 +543,7 @@ async def ocr_single(request: Request, payload: dict = Body(...)):
             temperature=ai_cfg.temperature,
             trigger_mode=ai_cfg.trigger_mode,
             schemes=request.app.state.config_manager.get_active_ai_scheme_with_failover(),
+            include_diff=bool(options.get("include_diff", cfg.include_diff)),
         )
 
         ai_result = await refiner.refine(
@@ -602,9 +622,26 @@ async def ocr_batch_json(request: Request, payload: dict = Body(...)):
     if model_id == "auto" or model_id not in request.app.state.engine_manager._factories:
         model_id = "rapidocr-mobile-cn"
     options["model"] = model_id
-    if model_id not in request.app.state.engine_manager.engines:
+    cfg = request.app.state.config_manager.load()
+    from core.langpack_runtime import lang_engine_id, resolve_langpack_model_dir, selected_ocr_language
+    ocr_language = selected_ocr_language(cfg, options)
+    if ocr_language:
+        options["ocr_language"] = ocr_language
+    runtime_model_id = lang_engine_id(model_id, ocr_language) if ocr_language else model_id
+    if runtime_model_id not in request.app.state.engine_manager.engines:
         try:
-            await request.app.state.engine_manager.load(model_id)
+            if ocr_language:
+                from core.engines import ONNXOCREngine
+
+                await request.app.state.engine_manager.load_from_path(
+                    runtime_model_id,
+                    resolve_langpack_model_dir(ocr_language),
+                    lambda path, mid=runtime_model_id: ONNXOCREngine(path, model_id=mid),
+                )
+            else:
+                await request.app.state.engine_manager.load(model_id)
+        except HTTPException:
+            raise
         except Exception as e:
             logger.exception("批量任务加载模型失败")
             raise HTTPException(status_code=500, detail={"code": "MODEL_LOAD_ERROR", "message": f"批量任务加载模型失败: {e}"})
@@ -614,8 +651,8 @@ async def ocr_batch_json(request: Request, payload: dict = Body(...)):
 
 
 @router.get("/v1/ocr/batch/{task_id}")
-async def ocr_batch_status(request: Request, task_id: str):
-    return request.app.state.queue.get_status(task_id)
+async def ocr_batch_status(request: Request, task_id: str, include_results: bool = False):
+    return request.app.state.queue.get_status(task_id, include_results=include_results)
 
 
 @router.post("/v1/ocr/batch/{task_id}/cancel")
@@ -671,7 +708,12 @@ def _langpack_manager():
 
 def _langpack_error(exc: Exception):
     """把语言包管理异常转换为前端可读的结构化错误。"""
-    return HTTPException(status_code=400, detail={"code": "LANGPACK_ERROR", "message": str(exc)})
+    message = str(exc)
+    if "all mirrors failed" in message:
+        message = "语言包远程镜像不可用或当前网络无法访问，请稍后重试，或选择本地可用的语言包。"
+    elif "no download URL" in message:
+        message = "该语言包暂未配置可用下载源，不能远程安装。"
+    return HTTPException(status_code=400, detail={"code": "LANGPACK_ERROR", "message": message, "cause": str(exc)})
 
 
 @router.get("/v1/langpacks")
@@ -1221,6 +1263,7 @@ async def refine_stream(request: Request, payload: dict = Body(...)):
         temperature=ai_cfg.temperature,
         trigger_mode="always",
         schemes=request.app.state.config_manager.get_active_ai_scheme_with_failover(),
+        include_diff=bool(payload.get("include_diff", cfg.include_diff)),
     )
 
     async def event_source():

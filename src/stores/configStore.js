@@ -17,6 +17,7 @@ export const useConfigStore = defineStore('config', () => {
   // State
   const config = ref({
     ocr_model: 'auto',
+    ocr_language: 'pp-ocrv5:ch',
     oobe_completed: false,
     tutorial_completed: false,
     preprocess: true,

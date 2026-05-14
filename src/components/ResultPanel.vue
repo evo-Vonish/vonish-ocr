@@ -122,11 +122,13 @@
 import { computed, ref } from 'vue'
 import MdRender from './MdRender.vue'
 import { useTaskStore } from '../stores/taskStore'
+import { useConfigStore } from '../stores/configStore'
 import { useAIStream } from '../composables/useAIStream'
 import { copyResult, exportSingle } from '../utils/exporters'
 import { showToast } from '../composables/useToast'
 
 const taskStore = useTaskStore()
+const configStore = useConfigStore()
 const aiStream = useAIStream()
 
 const tabs = [
@@ -261,6 +263,7 @@ async function startRefine() {
     text: result.text || '',
     scene_type: result.scene || 'printed_document',
     confidence: result.confidence || 0,
+    include_diff: !!configStore.config.include_diff,
   })
   const finalResult = aiStream.providerResult.value
   if (finalResult) {

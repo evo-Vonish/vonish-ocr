@@ -170,7 +170,13 @@ async function startOCR() {
   selected.forEach(f => taskStore.setTaskStatus(f.id, 'queued'))
 
   if (selected.length === 1) {
-    await recognizeOne(selected[0], taskStore.getPreprocessJob(selected[0].id) ? { preprocess_job_id: taskStore.getPreprocessJob(selected[0].id).job_id } : {})
+    await recognizeOne(selected[0], {
+      ...(taskStore.getPreprocessJob(selected[0].id) ? { preprocess_job_id: taskStore.getPreprocessJob(selected[0].id).job_id } : {}),
+      model: configStore.config.ocr_model || 'rapidocr-mobile-cn',
+      ocr_language: configStore.config.ocr_language || 'pp-ocrv5:ch',
+      output_mode: configStore.config.output_mode || 'smart',
+      ai_refine_batch: !!configStore.config.batch_ai_refine,
+    })
     return
   }
 
@@ -179,19 +185,17 @@ async function startOCR() {
   try {
     const { task_id } = await ocrBatch(selected.map(f => f.base64), {
       model: configStore.config.ocr_model || 'rapidocr-mobile-cn',
+      ocr_language: configStore.config.ocr_language || 'pp-ocrv5:ch',
       output_mode: configStore.config.output_mode || 'smart',
     })
-    const doneFromWs = new Promise((resolve) => {
-      ws = createBatchWebSocket(task_id, (msg) => {
-        if (msg.type !== 'progress') return
-        if (typeof msg.index === 'number' && selected[msg.index]) {
-          applyBatchItem(selected[msg.index], msg)
-        }
-        if (msg.total > 0 && msg.completed >= msg.total) resolve(true)
-      })
-    })
-    const doneFromPoll = waitBatchDone(task_id)
-    await Promise.race([doneFromWs, doneFromPoll])
+    createBatchWebSocket(task_id, (msg) => {
+      if (msg.type !== 'progress') return
+      if (typeof msg.index === 'number' && selected[msg.index]) {
+        applyBatchItem(selected[msg.index], msg)
+      }
+    }).then(socket => { ws = socket })
+
+    await waitBatchDone(task_id, selected)
     const batchResult = await waitBatchResults(task_id)
     batchResult?.results?.forEach((result, index) => {
       if (!selected[index]) return
@@ -219,6 +223,14 @@ async function startOCR() {
   }
 }
 
+function applyBatchSnapshot(selected, status) {
+  if (!Array.isArray(status?.results)) return
+  status.results.forEach(item => {
+    if (typeof item?.index !== 'number' || !selected[item.index]) return
+    applyBatchItem(selected[item.index], { result: item.result, error: item.result?.error })
+  })
+}
+
 function applyBatchItem(target, msg) {
   if (msg.result && !msg.result.error) {
     taskStore.setResult(target.id, msg.result)
@@ -229,17 +241,25 @@ function applyBatchItem(target, msg) {
   }
 }
 
-async function waitBatchDone(taskId) {
-  for (let i = 0; i < 360; i++) {
-    const status = await getBatchStatus(taskId).catch(() => null)
-    if (status?.status === 'completed' || status?.status === 'cancelled') return status
-    await new Promise(resolve => setTimeout(resolve, 800))
+async function waitBatchDone(taskId, selected) {
+  let missingCount = 0
+  while (true) {
+    const status = await getBatchStatus(taskId, true).catch(() => null)
+    if (!status) {
+      missingCount++
+      if (missingCount >= 10) throw new Error(t('toast_batch_failed'))
+    } else {
+      missingCount = 0
+      if (status.error) throw new Error(status.error)
+      applyBatchSnapshot(selected, status)
+      if (status.status === 'completed' || status.status === 'cancelled') return status
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000))
   }
-  throw new Error('Batch timeout')
 }
 
 async function waitBatchResults(taskId) {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 60; i++) {
     const result = await getBatchResults(taskId).catch(() => null)
     if (result?.results) return result
     await new Promise(resolve => setTimeout(resolve, 500))

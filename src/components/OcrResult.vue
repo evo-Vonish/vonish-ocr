@@ -77,17 +77,30 @@
           <div class="v-result-label" style="margin-bottom: var(--s1);">{{ t('ai_refined_title') }}</div>
           <div v-if="displayResult.aiError" class="v-small" style="color: var(--v-error);">{{ t('ai_refine_auto_error') }}: {{ displayResult.aiError.message }}</div>
         </div>
+        <div v-if="aiPanelState !== 'ready'" class="ai-state-panel" :class="`is-${aiPanelState}`">
+          <span class="ai-state-dot"></span>
+          <div>
+            <div class="v-card-title">{{ aiStateTitle }}</div>
+            <div class="v-small" style="margin-top: var(--s1);">{{ aiStateText }}</div>
+          </div>
+        </div>
         <div v-if="streamStatus === 'streaming'" class="v-mono-accent" style="margin-bottom: var(--s3);">{{ t('ai_streaming') }}</div>
-        <pre class="v-ocr-text" style="margin: 0; white-space: pre-wrap; word-break: break-word;">{{ streamedText || displayResult.polished || t('ai_empty') }}</pre>
+        <MdRender v-if="aiPanelState === 'ready' || streamedText" :text="refinedMarkdown" />
         <div v-if="streamStatus === 'error'" class="v-small" style="margin-top: var(--s3); color: var(--v-error);">{{ t('ai_refine_failed') }}: {{ aiStream.error.value?.message || t('unknown_error') }}</div>
         <div v-if="streamStatus === 'interrupted'" class="v-small" style="margin-top: var(--s3);">{{ t('ai_interrupted') }}</div>
       </div>
 
       <div v-if="activeTab === 'diff'" class="v-result-col v-diff-panel" style="min-height: 100%;">
         <div class="v-result-label">DIFF RECORD</div>
-        <div v-if="!displayResult.diff.length" class="v-small">{{ t('diff_empty') }}</div>
+        <div v-if="diffPanelState !== 'ready'" class="ai-state-panel" :class="`is-${diffPanelState}`">
+          <span class="ai-state-dot"></span>
+          <div>
+            <div class="v-card-title">{{ diffStateTitle }}</div>
+            <div class="v-small" style="margin-top: var(--s1);">{{ diffStateText }}</div>
+          </div>
+        </div>
         <div v-else class="v-diff-list">
-          <div v-for="(item, index) in displayResult.diff" :key="index" class="v-diff-line">
+          <div v-for="(item, index) in activeDiff" :key="index" class="v-diff-line">
             <span class="v-diff-from v-delete-mark">{{ item.original || '-' }}</span>
             <span class="v-diff-arrow">-&gt;</span>
             <span class="v-diff-to v-insert-mark">{{ item.revised || item.fixed || '-' }}</span>
@@ -122,11 +135,14 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useTaskStore } from '../stores/taskStore'
+import { useConfigStore } from '../stores/configStore'
 import { useAIStream } from '../composables/useAIStream'
 import { showToast } from '../composables/useToast'
 import { t } from '../i18n'
+import MdRender from './MdRender.vue'
 
 const taskStore = useTaskStore()
+const configStore = useConfigStore()
 const aiStream = useAIStream()
 
 const tabs = [
@@ -144,6 +160,13 @@ const rawResult = computed(() => taskStore.currentTask ? taskStore.getResult(tas
 const displayError = computed(() => taskStore.currentTask ? taskStore.getError(taskStore.currentTask.id) : null)
 const streamStatus = computed(() => aiStream.status.value)
 const streamedText = computed(() => aiStream.text.value)
+const refinedMarkdown = computed(() => streamedText.value || displayResult.value.polished || t('ai_empty'))
+const activeDiff = computed(() => aiStream.diff.value.length ? aiStream.diff.value : displayResult.value.diff)
+const aiEnabled = computed(() => !!configStore.config?.ai?.enabled)
+const isCurrentStreamingTask = computed(() => {
+  const streamTaskId = aiStream.activeTaskId.value
+  return streamStatus.value === 'streaming' && (!streamTaskId || streamTaskId === taskStore.currentTask?.id)
+})
 
 const isLoading = computed(() => {
   const task = taskStore.currentTask
@@ -181,6 +204,55 @@ const displayResult = computed(() => {
     aiError: ai.error || null,
   }
 })
+
+const aiPanelState = computed(() => {
+  if (!rawResult.value) return 'waiting'
+  if (isCurrentStreamingTask.value) return streamedText.value ? 'ready' : 'requesting'
+  if (!aiEnabled.value) return 'disabled'
+  if (streamStatus.value === 'error' || displayResult.value.aiError) return 'error'
+  if (displayResult.value.polished) return 'ready'
+  return 'waiting'
+})
+
+const aiStateTitle = computed(() => ({
+  disabled: t('ai_state_disabled_title'),
+  waiting: t('ai_state_waiting_title'),
+  requesting: t('ai_state_requesting_title'),
+  error: t('ai_refine_failed'),
+}[aiPanelState.value] || t('ai_refined_title')))
+
+const aiStateText = computed(() => ({
+  disabled: t('ai_state_disabled_text'),
+  waiting: t('ai_state_waiting_text'),
+  requesting: t('ai_state_requesting_text'),
+  error: displayResult.value.aiError?.message || aiStream.error.value?.message || t('unknown_error'),
+}[aiPanelState.value] || ''))
+
+const diffPanelState = computed(() => {
+  if (!rawResult.value) return 'waiting'
+  if (isCurrentStreamingTask.value) return activeDiff.value.length ? 'ready' : 'requesting'
+  if (!aiEnabled.value) return 'disabled'
+  if (streamStatus.value === 'error' || displayResult.value.aiError) return 'error'
+  if (activeDiff.value.length) return 'ready'
+  if (displayResult.value.polished) return 'empty'
+  return 'waiting'
+})
+
+const diffStateTitle = computed(() => ({
+  disabled: t('diff_state_disabled_title'),
+  waiting: t('diff_state_waiting_title'),
+  requesting: t('diff_state_requesting_title'),
+  empty: t('diff_state_empty_title'),
+  error: t('ai_refine_failed'),
+}[diffPanelState.value] || 'DIFF RECORD'))
+
+const diffStateText = computed(() => ({
+  disabled: t('diff_state_disabled_text'),
+  waiting: t('diff_state_waiting_text'),
+  requesting: t('diff_state_requesting_text'),
+  empty: t('diff_state_empty_text'),
+  error: displayResult.value.aiError?.message || aiStream.error.value?.message || t('unknown_error'),
+}[diffPanelState.value] || ''))
 
 function errorHint(code) {
   const hints = {
@@ -249,9 +321,11 @@ async function startRefine() {
   if (!result || !taskId) return
   activeTab.value = 'refined'
   await aiStream.start({
+    task_id: taskId,
     text: result.text || '',
     scene_type: result.scene || 'printed_document',
     confidence: result.confidence || 0,
+    include_diff: !!configStore.config.include_diff,
   })
   const finalResult = aiStream.providerResult.value
   if (finalResult) {
@@ -303,6 +377,51 @@ function stopRefine() {
 .v-diff-line .v-caption {
   font-family: var(--font-mono);
   font-size: var(--fs-caption);
+}
+
+.ai-state-panel {
+  min-height: 220px;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-content: center;
+  gap: var(--s3);
+  padding: var(--s5);
+  background: var(--v-bg);
+  border: 1px dashed var(--v-border);
+  border-radius: var(--r3);
+}
+
+.ai-state-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border: 1px solid var(--v-border-strong);
+  border-radius: 50%;
+}
+
+.ai-state-panel.is-requesting .ai-state-dot,
+.ai-state-panel.is-waiting .ai-state-dot {
+  border-color: var(--v-accent);
+  box-shadow: var(--glow-soft);
+  animation: ai-pulse 1.4s var(--ease-cut) infinite;
+}
+
+.ai-state-panel.is-disabled .ai-state-dot {
+  border-style: dashed;
+}
+
+.ai-state-panel.is-error {
+  border-color: var(--v-error);
+}
+
+.ai-state-panel.is-error .ai-state-dot {
+  background: var(--v-error);
+  border-color: var(--v-error);
+}
+
+@keyframes ai-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.52; }
+  50% { transform: scale(1.45); opacity: 1; }
 }
 
 .error-actions .v-state-tab,

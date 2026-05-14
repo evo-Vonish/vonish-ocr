@@ -23,6 +23,22 @@ function unescapeMath(t) {
 
 /** Render $$...$$ and $...$ with KaTeX before Markdown touches them */
 function renderMath(md) {
+  // Block math: \[ ... \]
+  md = md.replace(/\\\[([\s\S]*?)\\\]/g, (_m, math) => {
+    try {
+      return katex.renderToString(math.trim(), { displayMode: true, throwOnError: false })
+    } catch (e) {
+      return `<pre class="katex-error">${_m}</pre>`
+    }
+  })
+  // Inline math: \( ... \)
+  md = md.replace(/\\\(([\s\S]*?)\\\)/g, (_m, math) => {
+    try {
+      return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false })
+    } catch (e) {
+      return `<span class="katex-error">${_m}</span>`
+    }
+  })
   // Block math: $$ ... $$
   md = md.replace(/\$\$([\s\S]*?)\$\$/g, (_m, math) => {
     try {
@@ -46,8 +62,13 @@ const renderedHtml = computed(() => {
   if (!props.text) return ''
   let processed = unescapeMath(props.text)
   processed = renderMath(processed)
-  // Use marked with gfm tables, no raw HTML
-  return marked.parse(processed, { breaks: true, gfm: true }) || ''
+  // GFM covers tables, task lists, fenced code, autolinks and strikethrough.
+  return marked.parse(processed, {
+    breaks: true,
+    gfm: true,
+    mangle: false,
+    headerIds: false,
+  }) || ''
 })
 </script>
 
@@ -62,6 +83,14 @@ const renderedHtml = computed(() => {
   line-height: 1.85;
   color: var(--v-text);
   word-break: break-word;
+}
+
+.md-render > :first-child {
+  margin-top: 0;
+}
+
+.md-render > :last-child {
+  margin-bottom: 0;
 }
 
 .md-render p {
@@ -91,22 +120,25 @@ const renderedHtml = computed(() => {
   font-size: 0.9em;
   color: var(--v-accent);
   background: var(--v-rail);
-  padding: 1px 6px;
-  border-radius: 3px;
+  padding: 1px var(--s2);
+  border: 1px solid var(--v-border);
+  border-radius: var(--r2);
 }
 
 /* code blocks */
 .md-render pre {
   font-family: var(--font-mono);
   font-size: var(--fs-small);
-  background: color-mix(in srgb, var(--v-coal) 90%, black);
+  line-height: 1.65;
+  background: var(--v-bg);
   border: 1px solid var(--v-border);
   border-radius: var(--r3);
   padding: var(--s3);
   overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  word-break: normal;
   margin: var(--s3) 0;
+  tab-size: 2;
 }
 
 .md-render pre code {
@@ -114,6 +146,8 @@ const renderedHtml = computed(() => {
   background: none;
   padding: 0;
   border-radius: 0;
+  font-size: inherit;
+  white-space: inherit;
 }
 
 /* bold / italic */
@@ -156,6 +190,24 @@ const renderedHtml = computed(() => {
 
 .md-render li:last-child { margin-bottom: 0; }
 
+.md-render input[type="checkbox"] {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0 var(--s2) 0 0;
+  vertical-align: -1px;
+  border: 1px solid var(--v-border-strong);
+  border-radius: var(--r1);
+  background: var(--v-bg);
+}
+
+.md-render input[type="checkbox"]:checked {
+  background:
+    linear-gradient(45deg, transparent 45%, var(--v-coal) 46% 54%, transparent 55%),
+    var(--v-accent);
+  border-color: var(--v-accent);
+}
+
 /* horizontal rule */
 .md-render hr {
   border: none;
@@ -165,9 +217,15 @@ const renderedHtml = computed(() => {
 
 /* tables */
 .md-render table {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
+  border-spacing: 0;
   margin: var(--s3) 0;
+  border: 1px solid var(--v-border);
+  border-radius: var(--r3);
 }
 
 .md-render th {
@@ -179,6 +237,7 @@ const renderedHtml = computed(() => {
   padding: var(--s2) var(--s3);
   text-align: left;
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 .md-render td {
@@ -186,6 +245,7 @@ const renderedHtml = computed(() => {
   padding: var(--s2) var(--s3);
   color: var(--v-text-muted);
   font-size: var(--fs-small);
+  vertical-align: top;
 }
 
 .md-render tr:hover td { background: var(--v-rail); }
@@ -201,5 +261,10 @@ const renderedHtml = computed(() => {
   max-width: 100%;
   border-radius: var(--r2);
   border: 1px solid var(--v-border);
+}
+
+.md-render .language-mermaid,
+.md-render code.language-mermaid {
+  color: var(--v-text);
 }
 </style>

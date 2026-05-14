@@ -6,9 +6,9 @@
         <span v-if="totalCount > 0" class="gpb-dot" :class="statusDotClass" aria-hidden="true"></span>
         <span class="gpb-label">
           <template v-if="totalCount === 0">证据队列为空</template>
-          <template v-else-if="allDone">{{ t('progress_all_done') }}</template>
-          <template v-else-if="activeCount">{{ t('progress_active', { done: doneCount, total: totalCount }) }}</template>
-          <template v-else>{{ t('progress_queued', { total: totalCount }) }}</template>
+          <template v-else-if="allDone">{{ allDoneLabel }}</template>
+          <template v-else-if="activeCount">{{ activeLabel }}</template>
+          <template v-else>{{ queuedLabel }}</template>
         </span>
         <span class="gpb-chips">
           <span v-if="preprocessedCount" class="gpb-chip pre">{{ preprocessedCount }}</span>
@@ -139,6 +139,15 @@ const pendingCount = computed(() => taskStore.tasks.filter(t => t.status === 'pe
 const preprocessedCount = computed(() => doneCount.value + failedCount.value + processingCount.value)
 const activeCount = computed(() => processingCount.value + pendingCount.value + preprocessedCount.value)
 const allDone = computed(() => totalCount.value > 0 && doneCount.value + failedCount.value === totalCount.value && processingCount.value === 0)
+const activeLabel = computed(() => t('progress_active').replace('{done}', doneCount.value).replace('{total}', totalCount.value))
+const queuedLabel = computed(() => t('progress_queued').replace('{total}', totalCount.value))
+const allDoneLabel = computed(() => {
+  if (!failedCount.value) return t('progress_all_done_ok').replace('{done}', doneCount.value).replace('{total}', totalCount.value)
+  return t('progress_all_done_mixed')
+    .replace('{done}', doneCount.value)
+    .replace('{failed}', failedCount.value)
+    .replace('{total}', totalCount.value)
+})
 
 const donePct = computed(() => totalCount.value ? Math.round((doneCount.value / totalCount.value) * 100) : 0)
 const processingPct = computed(() => totalCount.value ? Math.round((processingCount.value / totalCount.value) * 100) : 0)
@@ -198,30 +207,23 @@ async function doStart() {
   try {
     const { task_id } = await ocrBatch(runnable.map(f => f.base64), {
       model: configStore.config.ocr_model || 'rapidocr-mobile-cn',
+      ocr_language: configStore.config.ocr_language || 'pp-ocrv5:ch',
       output_mode: configStore.config.output_mode || 'smart',
+      ai_refine_batch: !!configStore.config.batch_ai_refine,
     })
-    const doneWs = new Promise(resolve => {
-      ws = createBatchWebSocket(task_id, msg => {
-        if (msg.type !== 'progress') return
-        if (typeof msg.index === 'number' && runnable[msg.index]) {
-          const t = runnable[msg.index]
-          if (msg.result && !msg.result.error) {
-            taskStore.setResult(t.id, msg.result)
-            taskStore.setTaskStatus(t.id, 'done')
-          } else if (msg.error || msg.result?.error) {
-            taskStore.setError(t.id, { code: 'OCR_ENGINE_ERROR', message: msg.error || msg.result?.error })
-            taskStore.setTaskStatus(t.id, 'failed')
-          }
-        }
-        if (msg.total > 0 && msg.completed >= msg.total) resolve(true)
-      })
+    createBatchWebSocket(task_id, msg => {
+      if (msg.type !== 'progress') return
+      if (typeof msg.index === 'number' && runnable[msg.index]) {
+        applyBatchItem(runnable[msg.index], msg)
+      }
+    }).then(socket => {
+      ws = socket
     })
-    await Promise.race([doneWs, pollBatch(task_id)])
+    await pollBatch(task_id, runnable)
     const br = await getBatchResults(task_id).catch(() => null)
     br?.results?.forEach((r, i) => {
       if (!runnable[i]) return
-      if (r && !r.error) { taskStore.setResult(runnable[i].id, r); taskStore.setTaskStatus(runnable[i].id, 'done') }
-      else { taskStore.setError(runnable[i].id, { code: 'OCR_ENGINE_ERROR', message: r?.error || '' }); taskStore.setTaskStatus(runnable[i].id, 'failed') }
+      applyBatchItem(runnable[i], { result: r, error: r?.error })
     })
   } catch (e) {
     runnable.forEach(f => {
@@ -235,13 +237,39 @@ async function doStart() {
   }
 }
 
-async function pollBatch(taskId) {
-  for (let i = 0; i < 360; i++) {
-    const s = await getBatchStatus(taskId).catch(() => null)
-    if (s?.status === 'completed' || s?.status === 'cancelled') return s
-    await new Promise(r => setTimeout(r, 800))
+function applyBatchItem(target, msg) {
+  if (msg.result && !msg.result.error) {
+    taskStore.setResult(target.id, msg.result)
+    taskStore.setTaskStatus(target.id, 'done')
+  } else if (msg.error || msg.result?.error) {
+    taskStore.setError(target.id, { code: 'OCR_ENGINE_ERROR', message: msg.error || msg.result?.error })
+    taskStore.setTaskStatus(target.id, 'failed')
   }
-  throw new Error('timeout')
+}
+
+function applyBatchSnapshot(runnable, status) {
+  if (!Array.isArray(status?.results)) return
+  status.results.forEach(item => {
+    if (typeof item?.index !== 'number' || !runnable[item.index]) return
+    applyBatchItem(runnable[item.index], { result: item.result, error: item.result?.error })
+  })
+}
+
+async function pollBatch(taskId, runnable) {
+  let missingCount = 0
+  while (true) {
+    const s = await getBatchStatus(taskId, true).catch(() => null)
+    if (!s) {
+      missingCount++
+      if (missingCount >= 10) throw new Error(t('toast_batch_failed'))
+    } else {
+      missingCount = 0
+      if (s.error) throw new Error(s.error)
+      applyBatchSnapshot(runnable, s)
+      if (s.status === 'completed' || s.status === 'cancelled') return s
+    }
+    await new Promise(r => setTimeout(r, 1000))
+  }
 }
 </script>
 

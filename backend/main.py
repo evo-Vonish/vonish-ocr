@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+import asyncio
 import signal
 import argparse
 import logging
@@ -119,6 +120,8 @@ async def lifespan(app: FastAPI):
 
             # 场景分类 + 预处理（与单图路由一致）
             cfg = app.state.config_manager.load()
+            from core.langpack_runtime import lang_engine_id, resolve_langpack_model_dir, selected_ocr_language
+            ocr_language = selected_ocr_language(cfg, opts)
             scene_type = "printed_document"
             preprocess_meta = {"scene": scene_type, "steps": [], "time_ms": 0, "used_original": False}
 
@@ -142,10 +145,24 @@ async def lifespan(app: FastAPI):
             _, encoded = cv2.imencode('.png', processed_image)
             processed_bytes = encoded.tobytes()
 
-            # 加载模型并识别
-            if model_id not in app.state.engine_manager.engines:
-                await app.state.engine_manager.load(model_id)
-            result = await app.state.engine_manager.recognize(processed_bytes, model_id=model_id, options=opts)
+            # 加载模型并识别。选择 OCR 语言时，必须加载语言包目录下的 ONNX 文件。
+            if ocr_language:
+                from core.engines import ONNXOCREngine
+
+                engine_id = lang_engine_id(model_id, ocr_language)
+                model_path = resolve_langpack_model_dir(ocr_language)
+                if engine_id not in app.state.engine_manager.engines:
+                    await app.state.engine_manager.load_from_path(
+                        engine_id,
+                        model_path,
+                        lambda path, mid=engine_id: ONNXOCREngine(path, model_id=mid),
+                    )
+                result = await app.state.engine_manager.recognize(processed_bytes, model_id=engine_id, options=opts)
+                result["ocr_language"] = ocr_language
+            else:
+                if model_id not in app.state.engine_manager.engines:
+                    await app.state.engine_manager.load(model_id)
+                result = await app.state.engine_manager.recognize(processed_bytes, model_id=model_id, options=opts)
 
             # 合并预处理元数据
             result["scene"] = preprocess_meta["scene"]
@@ -169,6 +186,7 @@ async def lifespan(app: FastAPI):
                         temperature=ai_cfg.temperature,
                         trigger_mode="always",
                         schemes=app.state.config_manager.get_active_ai_scheme_with_failover(),
+                        include_diff=bool(opts.get("include_diff", cfg.include_diff)),
                     )
                     ai_result = await refiner.refine(
                         raw_text=result.get("text", ""),
@@ -193,6 +211,8 @@ async def lifespan(app: FastAPI):
 
             # 场景分类 + 预处理（同步版本）
             cfg = app.state.config_manager.load()
+            from core.langpack_runtime import lang_engine_id, resolve_langpack_model_dir, selected_ocr_language
+            ocr_language = selected_ocr_language(cfg, opts)
             scene_type = "printed_document"
             preprocess_meta = {"scene": scene_type, "steps": [], "time_ms": 0, "used_original": False}
 
@@ -220,7 +240,18 @@ async def lifespan(app: FastAPI):
             processed_bytes = encoded.tobytes()
 
             # 识别（纯同步，避免 asyncio.run 在线程中反复创建事件循环）
-            result = app.state.engine_manager.recognize_sync(processed_bytes, model_id=model_id, options=opts)
+            if ocr_language:
+                from core.engines import ONNXOCREngine
+
+                engine_id = lang_engine_id(model_id, ocr_language)
+                if engine_id not in app.state.engine_manager.engines:
+                    engine = ONNXOCREngine(resolve_langpack_model_dir(ocr_language), model_id=engine_id)
+                    asyncio.run(engine.load())
+                    app.state.engine_manager.engines[engine_id] = engine
+                result = app.state.engine_manager.recognize_sync(processed_bytes, model_id=engine_id, options=opts)
+                result["ocr_language"] = ocr_language
+            else:
+                result = app.state.engine_manager.recognize_sync(processed_bytes, model_id=model_id, options=opts)
 
             # 合并预处理元数据
             result["scene"] = preprocess_meta["scene"]
@@ -245,6 +276,7 @@ async def lifespan(app: FastAPI):
                         temperature=ai_cfg.temperature,
                         trigger_mode="always",
                         schemes=app.state.config_manager.get_active_ai_scheme_with_failover(),
+                        include_diff=bool(opts.get("include_diff", cfg.include_diff)),
                     )
                     ai_result = asyncio.run(refiner.refine(
                         raw_text=result.get("text", ""),

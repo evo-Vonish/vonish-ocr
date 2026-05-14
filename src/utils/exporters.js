@@ -85,8 +85,24 @@ async function makeDocxBlob(sections) {
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
 }
 
-export function downloadBlob(blobOrText, filename, mimeType = 'text/plain;charset=utf-8') {
+export async function downloadBlob(blobOrText, filename, mimeType = 'text/plain;charset=utf-8') {
   const blob = blobOrText instanceof Blob ? blobOrText : new Blob([blobOrText], { type: mimeType })
+
+  // 优先原生保存对话框
+  if (typeof window !== 'undefined' && window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ accept: { [mimeType]: [`.${filename.split('.').pop() || 'txt'}`] } }] })
+      const writable = await handle.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      return true
+    } catch (e) {
+      if (e?.name === 'AbortError') return false // user cancelled
+      console.warn('原生保存对话框失败，降级浏览器下载:', e)
+    }
+  }
+
+  // 浏览器兜底
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -95,17 +111,18 @@ export function downloadBlob(blobOrText, filename, mimeType = 'text/plain;charse
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+  return true
 }
 
 export async function exportSingle(result, filename, mode, format) {
   const base = safeName(filename)
   if (format === 'txt') {
-    downloadBlob(buildExportText(result, mode, filename), `${base}.txt`, 'text/plain;charset=utf-8')
+    await downloadBlob(buildExportText(result, mode, filename), `${base}.txt`, 'text/plain;charset=utf-8')
   } else if (format === 'md') {
-    downloadBlob(buildMarkdown(result, mode, filename), `${base}.md`, 'text/markdown;charset=utf-8')
+    await downloadBlob(buildMarkdown(result, mode, filename), `${base}.md`, 'text/markdown;charset=utf-8')
   } else if (format === 'docx') {
     const blob = await makeDocxBlob([{ title: `${base} ${modeLabel(mode)}`, body: buildExportText(result, mode, filename) }])
-    downloadBlob(blob, `${base}.docx`)
+    await downloadBlob(blob, `${base}.docx`)
   }
 }
 
@@ -124,11 +141,11 @@ export async function exportBatch(items, { mode = 'polished', format = 'md', out
         body: buildExportText(result, mode, task.name),
       }))
       const blob = await makeDocxBlob(sections)
-      downloadBlob(blob, `${title}.docx`)
+      await downloadBlob(blob, `${title}.docx`)
     } else {
       const ext = format === 'txt' ? 'txt' : 'md'
       const body = completed.map(({ task, result }) => buildMarkdown(result, mode, task.name)).join('\n\n---\n\n')
-      downloadBlob(body, `${title}.${ext}`, ext === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8')
+      await downloadBlob(body, `${title}.${ext}`, ext === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8')
     }
     onProgress?.(completed.length, completed.length)
     return
@@ -150,7 +167,7 @@ export async function exportBatch(items, { mode = 'polished', format = 'md', out
     await new Promise(resolve => setTimeout(resolve, 0))
   }
   const blob = await zip.generateAsync({ type: 'blob' })
-  downloadBlob(blob, `vonish-ocr-${modeLabel(mode)}.zip`, 'application/zip')
+  await downloadBlob(blob, `vonish-ocr-${modeLabel(mode)}.zip`, 'application/zip')
 }
 
 export function modeLabel(mode) {

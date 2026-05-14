@@ -32,6 +32,11 @@
                 <option value="rapidocr-mobile-cn">{{ t('config_model_ultra') }}</option>
                 <option value="cnocr-standard-cn">{{ t('config_model_standard') }}</option>
               </select>
+              <label class="field-label">{{ t('config_ocr_language') }}</label>
+              <select v-model="config.ocr_language">
+                <option value="pp-ocrv5:ch">{{ t('config_langpack_ch') }}</option>
+                <option value="pp-ocrv5:en">{{ t('config_langpack_en') }}</option>
+              </select>
               <button class="wide-action" type="button" @click="emit('open-langpacks')">{{ t('config_open_langpacks') }}</button>
               <p class="hint-text">{{ t('config_langpack_hint') }}</p>
             </section>
@@ -132,6 +137,7 @@ function close() {
 
 const config = reactive({
   ocr_model: 'auto',
+  ocr_language: 'pp-ocrv5:ch',
   preprocess: true,
   auto_rotate: true,
   perspective_correct: false,

@@ -106,12 +106,14 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useTaskStore } from '../stores/taskStore'
+import { useConfigStore } from '../stores/configStore'
 import { exportSingle, copyResult } from '../utils/exporters'
 import { showToast } from '../composables/useToast'
 import { t } from '../i18n'
 import { useAIStream } from '../composables/useAIStream'
 
 const taskStore = useTaskStore()
+const configStore = useConfigStore()
 const aiStream = useAIStream()
 const showPreprocessModal = ref(false)
 const exportMode = ref('polished')
@@ -202,9 +204,11 @@ async function reRefine() {
   if (!result || !taskId || !result.text) return
   try {
     await aiStream.start({
+      task_id: taskId,
       text: result.text || '',
       scene_type: result.scene || 'printed_document',
       confidence: result.confidence || 0,
+      include_diff: !!configStore.config.include_diff,
     })
     const finalResult = aiStream.providerResult.value
     if (finalResult) {

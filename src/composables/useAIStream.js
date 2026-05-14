@@ -1,17 +1,19 @@
 import { ref } from 'vue'
 import { streamAIRefine, parseApiError } from '../api/tauri_ipc'
 
-export function useAIStream() {
-  const status = ref('idle')
-  const text = ref('')
-  const diff = ref([])
-  const error = ref(null)
-  const providerResult = ref(null)
-  let controller = null
+const status = ref('idle')
+const text = ref('')
+const diff = ref([])
+const error = ref(null)
+const providerResult = ref(null)
+const activeTaskId = ref(null)
+let controller = null
 
+export function useAIStream() {
   async function start(payload) {
     stop(true)
     controller = new AbortController()
+    activeTaskId.value = payload?.task_id || payload?.taskId || null
     status.value = 'streaming'
     text.value = ''
     diff.value = []
@@ -72,6 +74,7 @@ export function useAIStream() {
     diff,
     error,
     providerResult,
+    activeTaskId,
     start,
     stop,
   }

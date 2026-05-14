@@ -16,7 +16,12 @@ def _manager():
 
 
 def _bad_request(exc: Exception) -> HTTPException:
-    return HTTPException(status_code=400, detail={"code": "LANGPACK_ERROR", "message": str(exc)})
+    message = str(exc)
+    if "all mirrors failed" in message:
+        message = "语言包远程镜像不可用或当前网络无法访问，请稍后重试，或选择本地可用的语言包。"
+    elif "no download URL" in message:
+        message = "该语言包暂未配置可用下载源，不能远程安装。"
+    return HTTPException(status_code=400, detail={"code": "LANGPACK_ERROR", "message": message, "cause": str(exc)})
 
 
 @router.get("")

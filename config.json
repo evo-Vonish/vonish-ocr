@@ -1,5 +1,6 @@
 {
   "ocr_model": "cnocr-standard-cn",
+  "ocr_language": "pp-ocrv5:ch",
   "oobe_completed": true,
   "tutorial_completed": true,
   "preprocess": true,

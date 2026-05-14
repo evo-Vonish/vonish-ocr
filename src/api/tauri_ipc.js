@@ -141,8 +141,9 @@ export async function getBatchResults(taskId) {
 }
 
 // 获取批量任务状态
-export async function getBatchStatus(taskId) {
-  return _backendJson(`/v1/ocr/batch/${taskId}`)
+export async function getBatchStatus(taskId, includeResults = false) {
+  const suffix = includeResults ? '?include_results=true' : ''
+  return _backendJson(`/v1/ocr/batch/${taskId}${suffix}`)
 }
 
 // 取消批量任务
